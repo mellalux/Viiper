@@ -1,9 +1,14 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 // Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/signs.json.
+// Writing needs the PIN kept in .save-pin (git-ignored; edit the file to change it). The server checks it, not the page.
 const SAVE_URL = '/__save-sign-tweaks';
 const SIGNS_FILE = 'src/signs.json';
+const PIN_FILE = '.save-pin';
+const MAX_WRONG_PINS = 5; // this many wrong PINs in a row lock saving for a minute
+const LOCK_MS = 60_000;
 
 // Keep the file readable in diffs: one orient / thumb pose / sign / global bone per line; a sign that carries tweaks
 // gets its base fields on one line and one bone per line below.
@@ -34,16 +39,54 @@ const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 const saveSignTweaks = () => {
   let file;
+  let pinFile;
   let ownWriteUntil = 0;
+  let wrongPins = 0;
+  let lockedUntil = 0;
+
+  // the PIN is read on every request, so editing .save-pin takes effect at once; a missing file gets a random 4-digit PIN
+  const readPin = () => {
+    try {
+      const pin = fs.readFileSync(pinFile, 'utf8').trim();
+      if (pin) return pin;
+    } catch {}
+    const pin = String(crypto.randomInt(1000, 10000));
+    fs.writeFileSync(pinFile, `${pin}\n`);
+    console.log(`[save-sign-tweaks] created ${PIN_FILE} with the save PIN: ${pin} (edit the file to change it)`);
+    return pin;
+  };
+  const samePin = (given, expected) => {
+    const hash = (s) => crypto.createHash('sha256').update(String(s)).digest();
+    return crypto.timingSafeEqual(hash(given), hash(expected));
+  };
+
   return {
     name: 'save-sign-tweaks',
     apply: 'serve',
     configResolved(config) {
       file = path.resolve(config.root, SIGNS_FILE);
+      pinFile = path.resolve(config.root, PIN_FILE);
     },
     configureServer(server) {
+      readPin(); // make sure the file exists (and show a new PIN in the terminal)
       server.middlewares.use(SAVE_URL, (req, res) => {
+        // GET only tells the page that saving is available here (so it can ask for the PIN)
+        if (req.method === 'GET') return void res.writeHead(200).end('ok');
         if (req.method !== 'POST') return void res.writeHead(405).end();
+        if (Date.now() < lockedUntil) {
+          req.resume();
+          return void res.writeHead(429).end('Liiga palju valesid PIN-e, proovi hiljem uuesti');
+        }
+        if (!samePin(req.headers['x-save-pin'] ?? '', readPin())) {
+          req.resume();
+          if (++wrongPins >= MAX_WRONG_PINS) {
+            wrongPins = 0;
+            lockedUntil = Date.now() + LOCK_MS;
+          }
+          // a short pause makes guessing slower
+          return void setTimeout(() => res.writeHead(403).end(`Vale PIN (see on failis ${PIN_FILE})`), 400);
+        }
+        wrongPins = 0;
         let body = '';
         req.on('data', (c) => (body += c));
         req.on('end', () => {

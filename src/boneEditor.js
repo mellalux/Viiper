@@ -16,6 +16,44 @@ const LEGACY_KEY = 'viiper.fingerTweaks'; // the first version's storage; no lon
 const STANDBY_KEY = 'viiper.standby';
 const POS_KEY = 'viiper.boneEditor';
 const SAVE_URL = '/__save-sign-tweaks';
+
+/** Ask for the save PIN in a small modal (masked input). Resolves to the typed PIN, or null when cancelled. */
+function askPin() {
+  if (document.querySelector('.pin-dialog')) return Promise.resolve(null); // already asking
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'pin-dialog';
+    overlay.innerHTML = `
+      <form class="pin-dialog__box">
+        <div class="pin-dialog__title">Salvesta faili</div>
+        <div>Sisesta PIN, et muudatused signs.json-i kirjutada.</div>
+        <input type="password" inputmode="numeric" autocomplete="off" aria-label="PIN" />
+        <div class="pin-dialog__buttons">
+          <button type="button" data-role="cancel">Tühista</button>
+          <button type="submit" data-role="ok">Salvesta</button>
+        </div>
+      </form>`;
+    const input = overlay.querySelector('input');
+    const finish = (value) => {
+      overlay.remove();
+      resolve(value);
+    };
+    overlay.querySelector('form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      finish(input.value);
+    });
+    overlay.querySelector('[data-role="cancel"]').addEventListener('click', () => finish(null));
+    overlay.addEventListener('pointerdown', (e) => e.target === overlay && finish(null));
+    // keys typed here must not reach the letter shortcuts (a PIN may contain letters) nor close anything else
+    overlay.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') finish(null);
+    });
+    overlay.addEventListener('keyup', (e) => e.stopPropagation());
+    document.body.appendChild(overlay);
+    input.focus();
+  });
+}
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
 // slider ranges: rotation in degrees; position in millimetres (the face needs much finer steps than the body)
@@ -62,6 +100,26 @@ const css = `
 }
 .bone-editor button:hover:not(:disabled) { background: #38383f; }
 .bone-editor button:disabled, .bone-editor input:disabled, .bone-editor select:disabled { opacity: 0.4; cursor: default; }
+.pin-dialog {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55);
+  font: 13px system-ui, sans-serif; color: #e8e8ec;
+}
+.pin-dialog__box {
+  width: 260px; padding: 16px; display: grid; gap: 10px; border-radius: 12px;
+  background: rgba(24, 24, 28, 0.97); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.pin-dialog__title { font-weight: 600; }
+.pin-dialog input {
+  padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 18px; letter-spacing: 0.3em; text-align: center;
+  color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.pin-dialog__buttons { display: flex; gap: 8px; }
+.pin-dialog button {
+  flex: 1; padding: 7px 4px; border-radius: 8px; cursor: pointer; font: inherit;
+  color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.pin-dialog button:hover { background: #38383f; }
+.pin-dialog button[data-role="ok"] { background: #2f9e6e; border-color: #5fd0a0; }
 `;
 
 // short fingerprint of the file's tweaks, to tell which file state a working copy was made against
@@ -137,6 +195,20 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
           <output>0</output>
         </label>`,
       ).join('')}
+      <div class="bone-editor__sep">Kopeeri teisest tähest siia</div>
+      <label class="bone-editor__row"><span>Tähelt</span><select data-role="copy-from"></select></label>
+      <label class="bone-editor__row"><span>Mida</span>
+        <select data-role="copy-scope">
+          <option value="all">Kogu täht</option>
+          <option value="group">Valitud rühm</option>
+          <option value="bone">Valitud luu / vorm</option>
+        </select>
+      </label>
+      <div class="bone-editor__buttons">
+        <button data-role="copy-apply">Kopeeri siia</button>
+        <button data-role="copy-undo" disabled>Võta tagasi</button>
+      </div>
+      <div class="bone-editor__bone" data-role="copy-note"></div>
       <div class="bone-editor__buttons">
         <button data-role="reset-bone">Luu nulli</button>
         <button data-role="reset-group">Rühma nulli</button>
@@ -158,7 +230,12 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
   const label = $('label');
   const sliders = [...panel.querySelectorAll('input[type=range]')];
   const outputs = sliders.map((s) => s.nextElementSibling);
-  for (const l of letters) letterSel.add(new Option(l === STANDBY ? 'Ooteasend' : l, l));
+  const copyFrom = $('copy-from');
+  for (const l of letters) {
+    const text = l === STANDBY ? 'Ooteasend' : l;
+    letterSel.add(new Option(text, l));
+    copyFrom.add(new Option(text, l));
+  }
   for (const g of GROUPS) if (g.id !== 'shapes' || tweaks.shapes.length) groupSel.add(new Option(g.label, g.id));
   groupSel.value = tweaks.shapes.length ? 'shapes' : 'face'; // shape keys are how a shape-key face (Character Creator) is tuned
 
@@ -345,6 +422,45 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     save();
     refresh();
   });
+  // --- copy another sign's tweaks onto the sign being edited; one step of undo ---
+  let undoSnapshot = null;
+  const copyNote = $('copy-note');
+  const undoBtn = $('copy-undo');
+  $('copy-apply').addEventListener('click', () => {
+    const from = copyFrom.value;
+    const to = letterSel.value;
+    const label = (l) => (l === STANDBY ? 'ooteasend' : l);
+    if (from === to) {
+      copyNote.textContent = 'Vali lähtetäht, mis erineb praegusest.';
+      return;
+    }
+    const scope = $('copy-scope').value;
+    const e = sel();
+    if (scope === 'bone' && !e) {
+      copyNote.textContent = 'Vali kõigepealt luu või vorm.';
+      return;
+    }
+    // (the mirror twin follows when the mirror box is ticked, as it does for the sliders)
+    const names =
+      scope === 'bone' ? [e.name, ...(mirrorBox.checked && e.mirrorName ? [e.mirrorName] : [])]
+      : items.filter((x) => scope === 'all' || x.group === groupSel.value).map((x) => x.name);
+    undoSnapshot = tweaks.export();
+    const { copied, cleared } = tweaks.copy(from, to, names);
+    save();
+    refresh();
+    undoBtn.disabled = false;
+    copyNote.textContent = copied || cleared ? `Kopeeritud ${label(from)} → ${label(to)}: ${copied} kirjet${cleared ? `, ${cleared} eemaldatud` : ''}.` : `${label(from)} ja ${label(to)} ei erine selles ulatuses (või pole siin tähepõhiseid kirjeid).`;
+  });
+  undoBtn.addEventListener('click', () => {
+    if (!undoSnapshot) return;
+    tweaks.load(undoSnapshot);
+    undoSnapshot = null;
+    undoBtn.disabled = true;
+    save();
+    refresh();
+    copyNote.textContent = 'Kopeerimine tagasi võetud.';
+  });
+
   $('copy').addEventListener('click', async (e) => {
     const text = JSON.stringify(tweaks.export(), null, 2);
     const btn = e.currentTarget;
@@ -362,7 +478,12 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     const text = btn.textContent;
     const state = tweaks.export();
     try {
-      const res = await fetch(SAVE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
+      // is there a save endpoint at all? (only the dev server has one) - checked first so the PIN isn't asked in vain
+      const probe = await fetch(SAVE_URL).catch(() => null);
+      if (!probe?.ok) throw new Error('ainult dev-serveris (npm run dev)');
+      const pin = await askPin();
+      if (pin === null) return;
+      const res = await fetch(SAVE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Save-Pin': pin }, body: JSON.stringify(state) });
       if (!res.ok) throw new Error(res.status === 404 ? 'ainult dev-serveris (npm run dev)' : await res.text());
       fileState = canon(state);
       base = fingerprint(fileState);

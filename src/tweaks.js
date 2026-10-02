@@ -170,6 +170,28 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       }
       recompute(e.index); // jump straight there so sliders feel direct
     },
+    /**
+     * Copy the tweaks of `names` from sign `from` to sign `to`, replacing what `to` had for them. Only entries that are
+     * kept per sign are copied (not the body's, which always applies, nor the waiting arm's).
+     * @returns { copied, cleared } how many entries were written / removed
+     */
+    copy(from, to, names) {
+      let copied = 0;
+      let cleared = 0;
+      for (const name of names) {
+        const e = byName.get(name);
+        if (!e) continue;
+        const fromKey = keyOf(e, from);
+        const toKey = keyOf(e, to);
+        if (fromKey === toKey) continue;
+        const src = bucket(fromKey)?.[name];
+        const had = !!bucket(toKey)?.[name];
+        this.set(toKey, name, src ? structuredClone(src) : null);
+        if (src) copied++;
+        else if (had) cleared++;
+      }
+      return { copied, cleared };
+    },
     /** Drop every tweak the given bones have under `key`. */
     reset(key, names) {
       for (const n of names) this.set(key, n, null);
