@@ -38,7 +38,42 @@ function sampleSkinColor(mesh, vertexIds) {
   return count ? new THREE.Color(`rgb(${Math.round(r / count)},${Math.round(g / count)},${Math.round(b / count)})`) : fallback;
 }
 
-export function createBlinker(root, { interval = [2, 5], duration = 0.16 } = {}) {
+// Random blink timing shared by both blink styles: calls apply(0..1) as the lids close and open again.
+function blinkTimer(apply, interval, duration) {
+  let nextBlink = interval[0];
+  let t = -1; // <0: idle, otherwise seconds into the current blink
+  let elapsed = 0;
+  return {
+    apply,
+    update(dt) {
+      elapsed += dt;
+      if (t < 0 && elapsed >= nextBlink) {
+        t = 0;
+        elapsed = 0;
+      }
+      if (t >= 0) {
+        t += dt;
+        const p = t / duration; // close in first half, open in second
+        apply(Math.sin(Math.min(p, 1) * Math.PI));
+        if (p >= 1) {
+          t = -1;
+          nextBlink = interval[0] + Math.random() * (interval[1] - interval[0]);
+        }
+      }
+    },
+  };
+}
+
+/** @param morphs the model's shape-key layer (morphs.js): rigs with real eyelid shape keys blink with those */
+export function createBlinker(root, { interval = [2, 5], duration = 0.16, morphs = null } = {}) {
+  if (morphs?.has('Eye_Blink_L') && morphs.has('Eye_Blink_R')) {
+    const apply = (amount) => {
+      morphs.set('blink', 'Eye_Blink_L', amount);
+      morphs.set('blink', 'Eye_Blink_R', amount);
+    };
+    apply(0);
+    return blinkTimer(apply, interval, duration);
+  }
   let mesh = null;
   root.traverse((o) => {
     if (o.isSkinnedMesh && !mesh && o.skeleton.bones.some((b) => EYE_BONE.test(b.name))) mesh = o;
@@ -104,27 +139,5 @@ export function createBlinker(root, { interval = [2, 5], duration = 0.16 } = {})
   };
   apply(0);
 
-  let nextBlink = interval[0];
-  let t = -1; // <0: idle, otherwise seconds into the current blink
-  let elapsed = 0;
-
-  return {
-    apply,
-    update(dt) {
-      elapsed += dt;
-      if (t < 0 && elapsed >= nextBlink) {
-        t = 0;
-        elapsed = 0;
-      }
-      if (t >= 0) {
-        t += dt;
-        const p = t / duration; // close in first half, open in second
-        apply(Math.sin(Math.min(p, 1) * Math.PI));
-        if (p >= 1) {
-          t = -1;
-          nextBlink = interval[0] + Math.random() * (interval[1] - interval[0]);
-        }
-      }
-    },
-  };
+  return blinkTimer(apply, interval, duration);
 }

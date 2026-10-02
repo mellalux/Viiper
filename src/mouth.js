@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import signData from './signs.json';
+import { detectRig } from './rigs.js';
 
 // Mouth shapes (visemes) driven by Rigify face bones. Offsets are given in model world axes
 // (+X = character's left, +Y up, +Z forward) and converted to each bone's local frame, so the
@@ -7,39 +9,55 @@ import * as THREE from 'three';
 // (GLTFLoader strips dots from node names: lipTL001, lipBR, jaw, teethB, ...)
 export const MOUTH_PARAMS = ['jaw', 'cornerIn', 'cornerUp', 'cornerForward', 'lowerDown', 'upperUp', 'lipForward'];
 
-export const VISEMES = {
-  rest: {},
-  // vowels
-  A: { jaw: 0.3, cornerIn: -0.004, lowerDown: 0.016, upperUp: 0.006 },
-  E: { jaw: 0.12, cornerIn: -0.008, cornerUp: 0.004, lowerDown: 0.006, upperUp: 0.003 },
-  I: { jaw: 0.05, cornerIn: -0.012, cornerUp: 0.006, lowerDown: 0.003 },
-  O: { jaw: 0.22, cornerIn: 0.012, cornerForward: 0.016, lowerDown: 0.014, upperUp: 0.006, lipForward: 0.008 },
-  U: { jaw: 0.1, cornerIn: 0.016, cornerForward: 0.02, lowerDown: 0.006, upperUp: 0.003, lipForward: 0.012 },
-  // Estonian vowels
-  Õ: { jaw: 0.12, cornerIn: -0.002, lowerDown: 0.006, upperUp: 0.002 },
-  Ä: { jaw: 0.25, cornerIn: -0.008, lowerDown: 0.012, upperUp: 0.005 },
-  Ö: { jaw: 0.12, cornerIn: 0.01, cornerForward: 0.014, lowerDown: 0.007, upperUp: 0.003, lipForward: 0.008 },
-  Ü: { jaw: 0.06, cornerIn: 0.014, cornerForward: 0.018, lowerDown: 0.003, lipForward: 0.012 },
-  // consonant groups
-  closed: { lowerDown: -0.012, upperUp: -0.006 }, // M B P: lips pressed together
-  teethLip: { jaw: 0.03, lowerDown: -0.008 }, // F V: lower lip against the upper teeth
-  tongue: { jaw: 0.1, cornerIn: -0.004, lowerDown: 0.007, upperUp: 0.003 }, // L N T D R
-  hiss: { jaw: 0.02, cornerIn: -0.008, cornerUp: 0.003, lowerDown: 0.002 }, // S Z C Š Ž
-  throat: { jaw: 0.1, lowerDown: 0.006, upperUp: 0.002 }, // K G H J
-};
+// The mouth shapes and the letter -> shape table live in signs.json (the base source for the finger-spelling data):
+//   visemes  per shape, any of MOUTH_PARAMS (missing = 0); `note` is ignored. Offsets are model-space lengths, jaw in radians.
+//   letters  letter -> viseme. The order here is the order of the buttons in the letter panel.
+export const VISEMES = signData.visemes;
+export const LETTERS = signData.letters;
 
-// letter -> viseme
-export const LETTERS = {
-  A: 'A', E: 'E', I: 'I', O: 'O', U: 'U', Õ: 'Õ', Ä: 'Ä', Ö: 'Ö', Ü: 'Ü', Y: 'Ü',
-  M: 'closed', B: 'closed', P: 'closed',
-  F: 'teethLip', V: 'teethLip',
-  L: 'tongue', N: 'tongue', T: 'tongue', D: 'tongue', R: 'tongue',
-  S: 'hiss', Z: 'hiss', C: 'hiss', Š: 'hiss', Ž: 'hiss', X: 'hiss',
-  K: 'throat', G: 'throat', H: 'throat', J: 'throat',
-  W: 'U', Q: 'U',
-};
+// Rigs whose face is made of shape keys (Character Creator) have no lip bones: their mouth shapes are weights of shape
+// keys instead, in signs.json `rigs.cc.visemes` ({ "morphs": { shapeKey: weight }, "jaw": degrees of jaw-bone opening }).
+function createMorphMouth(root, morphs, smoothing) {
+  const visemes = signData.rigs.cc.visemes;
+  const jawBone = root.getObjectByName('CC_Base_JawRoot'); // carries the teeth and tongue; opens about its local Z
+  const jawRest = jawBone?.quaternion.clone();
+  const names = [...new Set(Object.values(visemes).flatMap((v) => Object.keys(v.morphs ?? {})))];
+  const cur = Object.fromEntries(names.map((n) => [n, 0]));
+  const target = { ...cur };
+  let jaw = 0;
+  let jawTarget = 0;
+  const q = new THREE.Quaternion();
+  const axis = new THREE.Vector3(0, 0, 1);
 
-export function createMouth(root, { smoothing = 22 } = {}) {
+  const pose = () => {
+    for (const n of names) morphs.set('mouth', n, cur[n]);
+    if (jawBone) jawBone.quaternion.copy(jawRest).multiply(q.setFromAxisAngle(axis, THREE.MathUtils.degToRad(jaw)));
+  };
+
+  return {
+    setViseme(name) {
+      const shape = visemes[name] ?? {};
+      for (const n of names) target[n] = shape.morphs?.[n] ?? 0;
+      jawTarget = shape.jaw ?? 0;
+    },
+    snapViseme(name) {
+      this.setViseme(name);
+      Object.assign(cur, target);
+      jaw = jawTarget;
+      pose();
+    },
+    update(dt) {
+      const k = 1 - Math.exp(-smoothing * dt);
+      for (const n of names) cur[n] += (target[n] - cur[n]) * k;
+      jaw += (jawTarget - jaw) * k;
+      pose();
+    },
+  };
+}
+
+/** @param morphs the model's shape-key layer (morphs.js); needed for rigs whose face is shape keys */
+export function createMouth(root, { smoothing = 22, morphs = null } = {}) {
+  if (morphs && detectRig(root)?.id === 'cc' && morphs.has('V_Open')) return createMorphMouth(root, morphs, smoothing);
   root.updateMatrixWorld(true);
   const get = (name) => root.getObjectByName(name);
   const cur = Object.fromEntries(MOUTH_PARAMS.map((p) => [p, 0]));

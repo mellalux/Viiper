@@ -1,3 +1,5 @@
+import { makeDraggable } from './draggable.js';
+
 // Floating, draggable box of letter buttons. Drag it by the title bar; the position is remembered.
 const STORAGE_KEY = 'viiper.letterPanel';
 
@@ -12,7 +14,7 @@ const css = `
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 8px 12px; cursor: grab; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.letter-panel--dragging .letter-panel__bar { cursor: grabbing; }
+.letter-panel.is-dragging .letter-panel__bar { cursor: grabbing; }
 .letter-panel__title { font-weight: 600; letter-spacing: 0.02em; }
 .letter-panel__grip { color: #888; letter-spacing: 2px; }
 .letter-panel__grid { display: grid; grid-template-columns: repeat(8, 38px); gap: 6px; padding: 10px 12px 0; }
@@ -58,45 +60,10 @@ export function createLetterPanel(letters, { onPress, onRelease }) {
   }
   document.body.appendChild(panel);
 
-  // --- positioning / dragging ---
-  const clamp = (x, y) => ({
-    x: Math.min(Math.max(0, x), Math.max(0, window.innerWidth - panel.offsetWidth)),
-    y: Math.min(Math.max(0, y), Math.max(0, window.innerHeight - panel.offsetHeight)),
-  });
-  const place = (x, y) => {
-    const p = clamp(x, y);
-    panel.style.left = `${p.x}px`;
-    panel.style.top = `${p.y}px`;
-  };
-
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-  } catch {}
-  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) place(saved.x, saved.y);
-  else place((window.innerWidth - panel.offsetWidth) / 2, window.innerHeight - panel.offsetHeight - 16);
-
-  const bar = panel.querySelector('.letter-panel__bar');
-  let drag = null;
-  bar.addEventListener('pointerdown', (e) => {
-    bar.setPointerCapture(e.pointerId);
-    drag = { dx: e.clientX - panel.offsetLeft, dy: e.clientY - panel.offsetTop };
-    panel.classList.add('letter-panel--dragging');
-  });
-  bar.addEventListener('pointermove', (e) => {
-    if (drag) place(e.clientX - drag.dx, e.clientY - drag.dy);
-  });
-  const endDrag = () => {
-    if (!drag) return;
-    drag = null;
-    panel.classList.remove('letter-panel--dragging');
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ x: panel.offsetLeft, y: panel.offsetTop }));
-    } catch {}
-  };
-  bar.addEventListener('pointerup', endDrag);
-  bar.addEventListener('pointercancel', endDrag);
-  window.addEventListener('resize', () => place(panel.offsetLeft, panel.offsetTop));
+  makeDraggable(panel, panel.querySelector('.letter-panel__bar'), STORAGE_KEY, () => [
+    (window.innerWidth - panel.offsetWidth) / 2,
+    window.innerHeight - panel.offsetHeight - 16,
+  ]);
 
   return {
     /** Highlight one letter (or none). */

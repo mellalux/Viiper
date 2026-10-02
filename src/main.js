@@ -6,6 +6,12 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { BLINK_CONFIG, createBlinker } from './blink.js';
 import { LETTERS, createMouth } from './mouth.js';
 import { createLetterPanel } from './letterPanel.js';
+import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './hands.js';
+import { createMorphs } from './morphs.js';
+import { createTweaks } from './tweaks.js';
+import { createBoneEditor } from './boneEditor.js';
+import { createViewControls } from './viewControls.js';
+import { detectRig } from './rigs.js';
 
 // Put your model at public/models/ViiperGirl.glb (or pass ?model=/models/other.glb)
 const MODEL_URL = new URLSearchParams(location.search).get('model') ?? '/models/ViiperGirl.glb';
@@ -25,6 +31,21 @@ camera.position.set(3, 2, 5);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
+// The view the view panel's reset button returns to; replaced by the framed view once the model has loaded.
+let homeView = { position: camera.position.clone(), target: controls.target.clone() };
+let model = null; // the loaded model's root
+// The signer's own view (as in the finger-spelling chart): from just in front of the eyes, looking at the signing hand.
+function signerView() {
+  const rig = model && detectRig(model);
+  if (!rig) return null;
+  const [l, r] = rig.eyes.map((n) => model.getObjectByName(n));
+  const hand = model.getObjectByName(rig.arm('R').hand);
+  if (!l || !r || !hand) return null;
+  const eyes = l.getWorldPosition(new THREE.Vector3()).add(r.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5);
+  return { position: eyes.add(new THREE.Vector3(0, 0.01, 0.06)), target: hand.getWorldPosition(new THREE.Vector3()) };
+}
+const viewControls = createViewControls({ camera, controls, home: () => homeView, signerView });
+
 scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 1.5));
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.position.set(5, 10, 7);
@@ -40,33 +61,50 @@ const loader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptD
 let mixer = null;
 let blinker = null;
 let mouth = null;
+let hands = null; // the signing (right) hand
+let handsL = null; // the other hand: only ever in its standby pose
+let morphs = null; // the model's shape keys (face morph targets), summed over their drivers
+let tweaks = null; // hand-tuned bone offsets (rotation + position) from signs.json
+let boneEditor = null;
 
 // Debug helpers: ?blink=0..1 freezes the lids at that closure, ?face=1 frames the face (?face=mouth the mouth),
-// ?openAngle=, ?closedAngle=, ?scale= override the eyelid dome. ?viseme=O freezes the mouth in that shape.
+// ?openAngle=, ?closedAngle=, ?scale= override the eyelid dome. ?viseme=O freezes the mouth in that shape,
+// ?sign=B freezes the hand in that letter's finger-spelling sign.
 const params = new URLSearchParams(location.search);
 
-function frameObject(object) {
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const dist = Math.max(size.x, size.y, size.z) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
-  camera.position.copy(center).add(new THREE.Vector3(1, 0.6, 1).normalize().multiplyScalar(dist * 1.5));
-  camera.near = dist / 100;
-  camera.far = dist * 100;
+// Default view: front-on, head to waist, so the face and the signing hand are both visible.
+function frameUpperBody() {
+  controls.target.set(-0.05, 1.45, 0);
+  camera.position.set(-0.05, 1.5, 1.45);
+  camera.near = 0.01;
+  camera.far = 100;
   camera.updateProjectionMatrix();
-  controls.target.copy(center);
   controls.update();
 }
 
 loader.load(
   MODEL_URL,
   (gltf) => {
+    model = gltf.scene;
     scene.add(gltf.scene);
-    frameObject(gltf.scene);
+    frameUpperBody();
     for (const k of ['openAngle', 'closedAngle', 'scale']) if (params.has(k)) BLINK_CONFIG[k] = +params.get(k);
-    blinker = createBlinker(gltf.scene);
-    mouth = createMouth(gltf.scene);
+    morphs = createMorphs(gltf.scene);
+    tweaks = createTweaks(gltf.scene, { weight: (side) => (side === 'L' ? handsL : hands)?.weight ?? 0, morphs }); // before anything poses the rig
+    blinker = createBlinker(gltf.scene, { morphs });
+    mouth = createMouth(gltf.scene, { morphs });
     if (params.has('viseme')) mouth?.snapViseme(params.get('viseme'));
+    hands = createHands(gltf.scene, 'R');
+    handsL = createHands(gltf.scene, 'L');
+    boneEditor = createBoneEditor({
+      scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
+      onLetter: say,
+      onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
+    });
+    // start in the standby pose (or the ?sign= letter) instead of rising from a hanging arm
+    hands?.snapSign(params.get('sign'));
+    handsL?.snapSign(params.get('sign'));
+    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, morphs, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
     window.__modelReady = true;
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
@@ -81,6 +119,7 @@ loader.load(
       camera.updateProjectionMatrix();
       controls.update();
     }
+    homeView = { position: camera.position.clone(), target: controls.target.clone() };
     if (gltf.animations.length) {
       mixer = new THREE.AnimationMixer(gltf.scene);
       gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
@@ -109,34 +148,56 @@ renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   mixer?.update(dt);
   if (!params.has('blink')) blinker?.update(dt);
-  if (!params.has('viseme')) mouth?.update(dt);
+  // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
+  const frozenSign = params.has('sign');
+  tweaks?.setKey(hands?.key ?? null);
+  tweaks?.step(dt);
+  tweaks?.applyPre(); // body offsets first: the arms' IK reads the shoulders
+  hands?.update(frozenSign ? 0 : dt);
+  handsL?.update(frozenSign ? 0 : dt);
+  mouth?.update(params.has('viseme') ? 0 : dt);
+  tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
+  morphs?.flush();
+  boneEditor?.update();
+  viewControls.update(); // the signer's view follows the hand
   controls.update();
   renderer.render(scene, camera);
 });
 
 // Alphabet: hold a letter key (or press a panel button) to show that mouth shape; release for rest.
 const panel = createLetterPanel(Object.keys(LETTERS), {
-  onPress: (letter) => say(letter),
-  onRelease: () => say(null),
+  onPress: press,
+  onRelease: release,
 });
 
 function say(letter) {
-  mouth?.setViseme(letter ? LETTERS[letter] : 'rest');
+  mouth?.setViseme(LETTERS[letter] ?? 'rest');
+  hands?.setSign(letter);
+  handsL?.setSign(letter); // joins in two-handed letters, otherwise stays in standby
   panel.setActive(letter);
+}
+
+// While the fine-tuning panel is editing, the pressed letter stays shown after release.
+function press(letter) {
+  say(letter);
+  boneEditor?.setLetter(letter);
+}
+function release() {
+  if (!boneEditor?.active) say(null);
 }
 
 let heldKey = null;
 window.addEventListener('keydown', (e) => {
-  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'SELECT') return;
   const letter = e.key.toUpperCase();
   if (letter in LETTERS) {
     heldKey = letter;
-    say(letter);
+    press(letter);
   }
 });
 window.addEventListener('keyup', (e) => {
   if (e.key.toUpperCase() === heldKey) {
     heldKey = null;
-    say(null);
+    release();
   }
 });
