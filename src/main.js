@@ -13,8 +13,8 @@ import { createBoneEditor } from './boneEditor.js';
 import { createViewControls } from './viewControls.js';
 import { detectRig } from './rigs.js';
 
-// Put your model at public/models/ViiperGirl.glb (or pass ?model=/models/other.glb)
-const MODEL_URL = new URLSearchParams(location.search).get('model') ?? '/models/ViiperGirl.glb';
+// The default model is public/models/Kati.glb; pass ?model=/models/ViiperGirl.glb (or any other .glb) to load another
+const MODEL_URL = new URLSearchParams(location.search).get('model') ?? '/models/Kati.glb';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

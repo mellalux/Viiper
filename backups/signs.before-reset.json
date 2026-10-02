@@ -1,0 +1,255 @@
+{
+  "orient": {
+    "up": { "finger": [0, 1, 0], "thumb": [1, 0, 0], "reach": [-0.1, 0.22, 0.5] },
+    "down": { "finger": [0, -1, 0], "thumb": [-1, 0, 0], "reach": [-0.2, -0.05, 0.6] },
+    "hang": { "note": "Hand hangs down in front of the body, back of the hand to the viewer. The wrist bends a moderate amount (maxBend); the rest of the way down comes from the knuckles (signs.*.knuckle).", "finger": [0, -1, 0], "thumb": [1, 0, 0], "reach": [-0.26, 0, 0.5], "pole": [-0.3, -1, -0.2], "maxBend": 60 },
+    "ready": { "note": "standby: the signing hand waits raised in front of the chest, palm to the viewer", "finger": [0.15, 1, 0], "thumb": [1, 0, 0], "reach": [-0.1, -0.2, 0.45] },
+    "relaxed": { "note": "standby: the other hand hangs relaxed at the side, palm to the body", "finger": [0, -1, 0.15], "thumb": [0, 0, 1], "reach": [-0.12, -0.88, 0.2], "maxBend": 60 },
+    "left": { "note": "across the body to the signer's left, thumb down, palm away from the signer", "finger": [1, 0, 0], "thumb": [0, -1, 0], "reach": [-0.1, 0.2, 0.5] },
+    "diagL": { "note": "up and across the body to the signer's left", "finger": [1, 1, 0], "thumb": [1, -1, 0], "reach": [-0.1, 0.2, 0.5] },
+    "cross": { "note": "two-handed X: both hands near the midline, fingers up and inward so they cross", "finger": [0.6, 1, 0], "thumb": [1, -0.6, 0], "reach": [0.12, 0, 0.5] },
+    "meet": { "note": "two-handed Q: both hands near the midline, fingers up and inward", "finger": [0.5, 1, 0], "thumb": [1, -0.5, 0], "reach": [0.1, -0.02, 0.5] }
+  },
+  "thumbPoses": {
+    "rest": { "joints": [[0, 0, 0], [0, 0, 0], [0, 0, 0]] },
+    "across": { "note": "folded over the palm", "joints": [[0, 0, -0.9], [0.6, 0, 0], [0.4, 0, 0]] },
+    "out": { "note": "L-shape, away from the index", "joints": [[-0.9, 0, 0], [0, 0, 0], [0, 0, 0]] },
+    "side": { "note": "lying along the fist", "joints": [[-0.3, 0, -0.3], [0, 0, 0], [0, 0, 0]] },
+    "up": { "note": "thumbs up", "joints": [[0, 0, 0.5], [0, 0, 0], [0, 0, 0]] },
+    "ring": { "note": "tip touching the index tip", "joints": [[0, 0, -0.6], [0.4, 0, 0], [0.3, 0, 0]] },
+    "opposed": { "note": "facing the fingers, not touching (C)", "joints": [[-0.3, 0, -0.5], [0.3, 0, 0], [0.2, 0, 0]] }
+  },
+  "visemes": {
+    "rest": {},
+    "A": { "jaw": 0.3, "cornerIn": -0.004, "lowerDown": 0.016, "upperUp": 0.006 },
+    "E": { "jaw": 0.12, "cornerIn": -0.008, "cornerUp": 0.004, "lowerDown": 0.006, "upperUp": 0.003 },
+    "I": { "jaw": 0.05, "cornerIn": -0.012, "cornerUp": 0.006, "lowerDown": 0.003 },
+    "O": { "jaw": 0.22, "cornerIn": 0.012, "cornerForward": 0.016, "lowerDown": 0.014, "upperUp": 0.006, "lipForward": 0.008 },
+    "U": { "jaw": 0.1, "cornerIn": 0.016, "cornerForward": 0.02, "lowerDown": 0.006, "upperUp": 0.003, "lipForward": 0.012 },
+    "Õ": { "jaw": 0.12, "cornerIn": -0.002, "lowerDown": 0.006, "upperUp": 0.002 },
+    "Ä": { "jaw": 0.25, "cornerIn": -0.008, "lowerDown": 0.012, "upperUp": 0.005 },
+    "Ö": { "jaw": 0.12, "cornerIn": 0.01, "cornerForward": 0.014, "lowerDown": 0.007, "upperUp": 0.003, "lipForward": 0.008 },
+    "Ü": { "jaw": 0.06, "cornerIn": 0.014, "cornerForward": 0.018, "lowerDown": 0.003, "lipForward": 0.012 },
+    "closed": { "note": "M B P: lips pressed together", "lowerDown": -0.012, "upperUp": -0.006 },
+    "teethLip": { "note": "F V: lower lip against the upper teeth", "jaw": 0.03, "lowerDown": -0.008 },
+    "tongue": { "note": "L N T D R", "jaw": 0.1, "cornerIn": -0.004, "lowerDown": 0.007, "upperUp": 0.003 },
+    "hiss": { "note": "S Z C Š Ž", "jaw": 0.02, "cornerIn": -0.008, "cornerUp": 0.003, "lowerDown": 0.002 },
+    "throat": { "note": "K G H J", "jaw": 0.1, "lowerDown": 0.006, "upperUp": 0.002 }
+  },
+  "letters": {
+    "A": "A",
+    "B": "closed",
+    "C": "hiss",
+    "D": "tongue",
+    "E": "E",
+    "F": "teethLip",
+    "G": "throat",
+    "H": "throat",
+    "I": "I",
+    "J": "throat",
+    "K": "throat",
+    "L": "tongue",
+    "M": "closed",
+    "N": "tongue",
+    "O": "O",
+    "P": "closed",
+    "Q": "U",
+    "R": "tongue",
+    "S": "hiss",
+    "Š": "hiss",
+    "Z": "hiss",
+    "Ž": "hiss",
+    "T": "tongue",
+    "U": "U",
+    "V": "teethLip",
+    "W": "U",
+    "Õ": "Õ",
+    "Ä": "Ä",
+    "Ö": "Ö",
+    "Ü": "Ü",
+    "X": "hiss",
+    "Y": "Ü"
+  },
+  "rigs": {
+    "cc": {
+      "thumbPoses": {
+        "rest": { "joints": [[0, 0, 0], [0, 0, 0], [0, 0, 0]] },
+        "across": { "note": "folded over the palm", "joints": [[0.05, -0.46, 1.5], [-0.15, -0.15, 0.74], [-0.15, 0.08, 0]] },
+        "out": { "note": "L-shape, away from the index", "joints": [[1.3, 0.05, 0.38], [-0.12, -0.1, 0.95], [0.15, -0.01, 0]] },
+        "side": { "note": "lying along the fist", "joints": [[-0.35, 0, 0.15], [0, 0, 0.1], [0, 0, 0.05]] },
+        "up": { "note": "thumbs up", "joints": [[0.28, 0.03, 0.64], [0.15, 0.02, 0], [0.15, 0.03, 0]] },
+        "ring": { "note": "tip touching the index tip", "joints": [[-0.23, -0.24, 1.5], [-0.15, 0.07, 0], [0.01, 0.08, 0.01]] },
+        "opposed": { "note": "facing the fingers, not touching (C)", "joints": [[0.57, 0.1, 1.47], [-0.14, -0.04, 0.45], [0.02, -0.08, 0.01]] }
+      },
+      "visemes": {
+        "rest": {},
+        "A": { "jaw": 16, "morphs": { "V_Open": 0.6 } },
+        "E": { "jaw": 7, "morphs": { "V_Wide": 0.6 } },
+        "I": { "jaw": 3.5, "morphs": { "V_Tight": 0.6, "Mouth_Smile_L": 0.25, "Mouth_Smile_R": 0.25 } },
+        "O": { "jaw": 11, "morphs": { "V_Tight_O": 0.9 } },
+        "U": { "jaw": 4, "morphs": { "V_Tight_O": 1, "Mouth_Pucker_Up_L": 0.4, "Mouth_Pucker_Up_R": 0.4, "Mouth_Pucker_Down_L": 0.4, "Mouth_Pucker_Down_R": 0.4 } },
+        "Õ": { "jaw": 6, "morphs": { "V_Wide": 0.3, "Mouth_Stretch_L": 0.15, "Mouth_Stretch_R": 0.15 } },
+        "Ä": { "jaw": 14, "morphs": { "V_Open": 0.5, "V_Wide": 0.4 } },
+        "Ö": { "jaw": 6, "morphs": { "V_Tight_O": 0.6 } },
+        "Ü": { "jaw": 3, "morphs": { "V_Tight_O": 0.8, "Mouth_Pucker_Up_L": 0.3, "Mouth_Pucker_Up_R": 0.3 } },
+        "closed": { "note": "M B P: lips pressed together", "jaw": 0, "morphs": { "V_Explosive": 1, "Mouth_Press_L": 0.5, "Mouth_Press_R": 0.5 } },
+        "teethLip": { "note": "F V: lower lip against the upper teeth", "jaw": 2, "morphs": { "V_Dental_Lip": 1 } },
+        "tongue": { "note": "L N T D R", "jaw": 5, "morphs": { "V_Lip_Open": 0.5, "V_Tongue_up": 0.7 } },
+        "hiss": { "note": "S Z C Š Ž", "jaw": 2, "morphs": { "V_Tight": 0.5, "Mouth_Smile_L": 0.2, "Mouth_Smile_R": 0.2 } },
+        "throat": { "note": "K G H J", "jaw": 5, "morphs": { "V_Lip_Open": 0.4 } }
+      }
+    }
+  },
+  "signs": {
+    "ootel": {
+      "curl": [0.2, 0.25, 0.3, 0.35], "dir": "ready", "thumb": "rest",
+      "tweaks": {
+        "handR": { "rot": [0, 8, 45] },
+        "forearmL": { "rot": [39, 0, 0] }
+      }
+    },
+    "A": {
+      "curl": [1, 1, 1, 1], "dir": "up", "thumb": "side",
+      "tweaks": {
+        "handR": { "rot": [-35, 70, 85] },
+        "f_pinky02R": { "rot": [-3, 0, 0] },
+        "f_pinky01R": { "rot": [-22, 0, 25] },
+        "f_ring02R": { "rot": [-48, -3, -7] },
+        "forearmR": { "rot": [17, 50, 23] },
+        "thumb02R": { "rot": [62, -3, 50] },
+        "thumb03R": { "rot": [40, 0, 0] },
+        "CC_Base_R_Forearm": { "rot": [53, 120, -5] },
+        "CC_Base_R_Thumb3": { "rot": [-40, 0, 0] },
+        "CC_Base_R_Index1": { "rot": [0, 0, -18] },
+        "CC_Base_R_Mid1": { "rot": [0, 0, -15] },
+        "CC_Base_R_Ring1": { "rot": [0, 0, -18] },
+        "CC_Base_R_Pinky1": { "rot": [0, 0, -12] },
+        "CC_Base_R_Thumb2": { "rot": [-3, 0, 0] },
+        "V_Wide": { "w": 1 },
+        "CC_Base_UpperJaw": { "rot": [0, 0, 5] }
+      }
+    },
+    "B": {
+      "curl": [0, 0, 0, 0], "dir": "up", "thumb": "across",
+      "tweaks": {
+        "CC_Base_R_Thumb1": { "rot": [-45, 5, -70] },
+        "CC_Base_R_Index1": { "rot": [-5, 0, 0] },
+        "CC_Base_R_Ring1": { "rot": [5, 0, 0] },
+        "CC_Base_R_Pinky1": { "rot": [10, 0, 0] },
+        "CC_Base_R_Thumb2": { "rot": [17, 32, -3] },
+        "CC_Base_R_Forearm": { "rot": [0, 120, 0] },
+        "CC_Base_R_Hand": { "rot": [8, 20, 35], "pos": [0, 2, 0] },
+        "CC_Base_R_Upperarm": { "rot": [15, -7, 15] }
+      }
+    },
+    "C": {
+      "curl": [0.4, 0.4, 0.4, 0.4], "dir": "left", "thumb": "opposed",
+      "tweaks": {
+        "CC_Base_R_Hand": { "rot": [-93, -27, 0] },
+        "CC_Base_R_Thumb1": { "rot": [-50, 0, 0] },
+        "CC_Base_R_Forearm": { "rot": [-7, 120, 20] },
+        "CC_Base_R_Pinky3": { "rot": [0, 0, 50] },
+        "CC_Base_R_Pinky2": { "rot": [0, 0, 38] },
+        "CC_Base_R_Pinky1": { "rot": [0, 0, 38] },
+        "CC_Base_R_Ring3": { "rot": [0, 0, 70] },
+        "CC_Base_R_Ring2": { "rot": [0, 0, 47] },
+        "CC_Base_R_Ring1": { "rot": [0, 0, 50] },
+        "CC_Base_R_Mid3": { "rot": [0, 0, 70] },
+        "CC_Base_R_Mid2": { "rot": [0, 0, 55] },
+        "CC_Base_R_Mid1": { "rot": [0, 0, 55] }
+      }
+    },
+    "D": {
+      "curl": [0.55, 1, 1, 1], "dir": "diagL", "thumb": "ring",
+      "tweaks": {
+        "CC_Base_R_Forearm": { "rot": [28, 120, 0] },
+        "CC_Base_R_Index1": { "rot": [0, 0, 15] },
+        "CC_Base_R_Index2": { "rot": [0, 17, -15] },
+        "CC_Base_R_Mid1": { "rot": [0, 0, -22] },
+        "CC_Base_R_Mid2": { "rot": [0, 0, -57] },
+        "CC_Base_R_Mid3": { "rot": [0, 0, -48] },
+        "CC_Base_R_Ring1": { "rot": [0, 0, -30] },
+        "CC_Base_R_Ring2": { "rot": [0, 0, -62] },
+        "CC_Base_R_Ring3": { "rot": [0, 0, -35] },
+        "CC_Base_R_Pinky1": { "rot": [0, 0, -27] },
+        "CC_Base_R_Pinky2": { "rot": [0, 0, -85] },
+        "CC_Base_R_Pinky3": { "rot": [0, 0, -40] },
+        "CC_Base_R_Thumb1": { "rot": [-22, -15, -48] },
+        "CC_Base_R_Thumb2": { "rot": [2, 15, 30] },
+        "CC_Base_R_Thumb3": { "rot": [0, -40, 13] },
+        "CC_Base_R_Hand": { "rot": [0, -31, 0] }
+      }
+    },
+    "E": {
+      "curl": [0.7, 0.7, 0.7, 0.7], "dir": "diagL", "thumb": "ring",
+      "tweaks": {
+        "CC_Base_R_Forearm": { "rot": [20, 120, 5] },
+        "CC_Base_R_Thumb1": { "rot": [-33, -50, -33] },
+        "CC_Base_R_Thumb3": { "rot": [-33, 13, -5] },
+        "CC_Base_R_Index2": { "rot": [0, 0, -42] },
+        "CC_Base_R_Thumb2": { "rot": [-7, 17, -5] },
+        "CC_Base_R_Hand": { "rot": [-7, -15, 0] }
+      }
+    },
+    "F": {
+      "curl": [0, 1, 1, 1], "dir": "left", "thumb": "up",
+      "tweaks": {
+        "CC_Base_R_Forearm": { "rot": [-22, 120, 32] },
+        "CC_Base_R_Hand": { "rot": [-57, -20, -10] },
+        "CC_Base_R_Index1": { "rot": [0, 0, 83] },
+        "CC_Base_R_Mid2": { "rot": [0, 0, -93] },
+        "CC_Base_R_Mid3": { "rot": [0, 0, -48] },
+        "CC_Base_R_Index3": { "rot": [0, 0, 30] },
+        "CC_Base_R_Ring2": { "rot": [0, 0, -93] },
+        "CC_Base_R_Ring3": { "rot": [0, 0, -57] },
+        "CC_Base_R_Pinky2": { "rot": [0, 0, -97] },
+        "CC_Base_R_Pinky3": { "rot": [0, 0, -57] },
+        "CC_Base_R_Thumb2": { "rot": [-48, -40, -48] },
+        "CC_Base_R_Thumb1": { "rot": [-7, 62, -33] }
+      }
+    },
+    "G": {
+      "curl": [0, 1, 1, 1], "dir": "down", "thumb": "across",
+      "tweaks": {
+        "CC_Base_R_Forearm": { "rot": [-12, 120, 53] },
+        "CC_Base_R_Hand": { "rot": [113, -120, 47] },
+        "CC_Base_R_Thumb2": { "rot": [0, 0, -25] },
+        "CC_Base_R_Thumb1": { "rot": [-52, -22, -48] },
+        "CC_Base_R_Upperarm": { "rot": [0, 2, -18] },
+        "CC_Base_R_Thumb3": { "rot": [0, 0, 13] }
+      }
+    },
+    "H": { "curl": [0, 0, 1, 1], "dir": "down", "thumb": "across" },
+    "I": { "curl": [0, 1, 1, 1], "dir": "up", "thumb": "across" },
+    "J": { "curl": [0, 1, 1, 1], "dir": "up", "thumb": "across" },
+    "K": { "curl": [0, 0, 1, 1], "dir": "diagL", "thumb": "ring", "spread": [-0.1, 0.1, 0, 0] },
+    "L": { "curl": [0, 1, 1, 1], "dir": "up", "thumb": "out" },
+    "M": { "curl": [0, 0, 0, 1], "dir": "hang", "thumb": "across", "spread": [-0.25, 0, 0.25, 0], "knuckle": [1.2, 1.2, 1.2, 0] },
+    "N": { "curl": [0, 0, 1, 1], "dir": "up", "thumb": "across" },
+    "O": {
+      "curl": [0.55, 0.6, 0.65, 0.7], "dir": "diagL", "thumb": "ring",
+      "tweaks": {
+        "handR": { "rot": [0, 45, 0] },
+        "upper_armR": { "rot": [0, 0, 14] }
+      }
+    },
+    "P": { "curl": [0, 0, 0, 0], "dir": "down", "thumb": "across" },
+    "Q": { "curl": [0.55, 0.6, 0.65, 0.7], "dir": "meet", "thumb": "ring", "left": { "curl": [0, 1, 1, 1], "dir": "meet", "thumb": "across" } },
+    "R": { "curl": [0, 1, 1, 0], "dir": "up", "thumb": "across" },
+    "S": { "curl": [0.3, 0.3, 0.3, 0.3], "dir": "diagL", "thumb": "opposed" },
+    "Š": { "curl": [0, 0, 0, 0], "dir": "up", "thumb": "across" },
+    "Z": { "curl": [0, 1, 1, 1], "dir": "diagL", "thumb": "across" },
+    "Ž": { "curl": [0.55, 1, 1, 1], "dir": "left", "thumb": "ring" },
+    "T": { "curl": [0, 0, 1, 1], "dir": "down", "thumb": "across", "spread": [-0.15, 0.15, 0, 0] },
+    "U": { "curl": [1, 1, 1, 0], "dir": "up", "thumb": "out" },
+    "V": { "curl": [0, 0, 1, 1], "dir": "up", "thumb": "across", "spread": [-0.2, 0.2, 0, 0] },
+    "W": { "curl": [0, 0, 0, 1], "dir": "up", "thumb": "across", "spread": [-0.2, 0, 0.2, 0] },
+    "Õ": { "curl": [0, 0.35, 1, 1], "dir": "diagL", "thumb": "across" },
+    "Ä": { "curl": [1, 1, 1, 1], "dir": "up", "thumb": "up" },
+    "Ö": { "curl": [0.5, 0.6, 0.7, 0.8], "dir": "diagL", "thumb": "opposed" },
+    "Ü": { "curl": [0, 0.55, 0.55, 0.55], "dir": "up", "thumb": "ring" },
+    "X": { "curl": [0, 1, 1, 1], "dir": "cross", "thumb": "across", "left": { "curl": [0, 1, 1, 1], "dir": "cross", "thumb": "across" } },
+    "Y": { "curl": [0.2, 1, 1, 1], "dir": "left", "thumb": "across" }
+  },
+  "global": {}
+}

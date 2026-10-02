@@ -22,7 +22,8 @@ const sign = (s, depth) => {
   const { tweaks, ...base } = s;
   if (!tweaks || !Object.keys(tweaks).length) return inline(s);
   const fields = Object.entries(base).map(([k, v]) => `${JSON.stringify(k)}: ${inline(v)}`).join(', ');
-  return `{\n${pad(depth + 1)}${fields},\n${pad(depth + 1)}"tweaks": ${block(tweaks, depth + 1, inline)}\n${pad(depth)}}`;
+  // (an undefined sign has no base fields, only tweaks)
+  return `{\n${fields ? `${pad(depth + 1)}${fields},\n` : ''}${pad(depth + 1)}"tweaks": ${block(tweaks, depth + 1, inline)}\n${pad(depth)}}`;
 };
 // rigs: { cc: { thumbPoses: { across: {...} }, visemes: { A: {...} } } } - one pose / viseme per line
 const rigs = (v, depth) => block(v, depth, (rig, d) => block(rig, d, (section, d2) => block(section, d2, inline)));

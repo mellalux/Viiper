@@ -102,8 +102,8 @@ export function createHands(root, side = 'R') {
   let standby = true;
 
   // --- animated state ---
-  const cur = { w: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: wq(hand) };
-  const tgt = { w: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: cur.qHand.clone() };
+  const cur = { w: 0, tw: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: wq(hand) };
+  const tgt = { w: 0, tw: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: cur.qHand.clone() };
 
   const shoulderPos = new THREE.Vector3();
   const v = new THREE.Vector3();
@@ -187,11 +187,14 @@ export function createHands(root, side = 'R') {
     boneList,
     /** The pose being shown (a letter or STANDBY), or null when the arm is lowered. */
     get key() {
-      return tgt.w > 0 ? letter : null;
+      return tgt.tw > 0 ? letter : null;
     },
-    /** How far the arm is raised into its pose, 0 (hanging) .. 1; fine-tuning of the arm bones fades with it. */
+    /**
+     * How strongly the fine-tuning of this arm's bones applies, 0 .. 1: fully while a sign (even an undefined one, whose
+     * hand then just rests as the model has it) is shown, fading out when the arm is lowered.
+     */
     get weight() {
-      return cur.w;
+      return cur.tw;
     },
     /**
      * Aim the hand at a letter's sign. Null/unknown shows the standby pose, or lowers the arm when standby is off.
@@ -202,9 +205,14 @@ export function createHands(root, side = 'R') {
       const own = side === 'L' ? SIGNS[l]?.left && { ...LEFT_DEFAULTS, ...SIGNS[l].left } : SIGNS[l];
       const key = own ? l : standby ? STANDBY : null;
       const sign = own || SIGNS[key];
-      tgt.w = sign ? 1 : 0;
+      // A sign without finger data is undefined: the hand stays as the model has it (w = 0) and only the hand-tuned
+      // offsets of that sign show, which is how a sign gets defined from scratch.
+      const defined = Array.isArray(sign?.curl);
+      tgt.w = defined ? 1 : 0;
+      tgt.tw = sign ? 1 : 0;
       if (!sign) return;
       letter = key;
+      if (!defined) return;
       const o = orientOf(key === STANDBY ? STANDBY_DIR[side] : sign.dir);
       tgt.curl = [...sign.curl];
       tgt.spread = sign.spread.map((s) => s * axisSign[rig.spreadAxis] * rig.spreadSign);
@@ -224,6 +232,7 @@ export function createHands(root, side = 'R') {
     snapSign(letter) {
       this.setSign(letter);
       cur.w = tgt.w;
+      cur.tw = tgt.tw;
       cur.curl = [...tgt.curl];
       cur.follow = tgt.follow;
       cur.knuckle = [...tgt.knuckle];
@@ -238,6 +247,7 @@ export function createHands(root, side = 'R') {
     update(dt) {
       const k = 1 - Math.exp(-HAND_CONFIG.smoothing * dt);
       cur.w += (tgt.w - cur.w) * k;
+      cur.tw += (tgt.tw - cur.tw) * k;
       cur.follow += (tgt.follow - cur.follow) * k;
       for (let i = 0; i < 4; i++) cur.knuckle[i] += (tgt.knuckle[i] - cur.knuckle[i]) * k;
       for (let i = 0; i < 4; i++) {

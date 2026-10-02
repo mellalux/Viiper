@@ -12,7 +12,7 @@ import { GROUPS } from './tweaks.js';
 // src/signs.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
 // writes them back into that file (dev server only).
 const STORAGE_KEY = 'viiper.tweaks';
-const LEGACY_KEY = 'viiper.fingerTweaks'; // first version: only hand rotations, { right|left: { letter: { bone: [x, y, z] } } }
+const LEGACY_KEY = 'viiper.fingerTweaks'; // the first version's storage; no longer read, just removed
 const STANDBY_KEY = 'viiper.standby';
 const POS_KEY = 'viiper.boneEditor';
 const SAVE_URL = '/__save-sign-tweaks';
@@ -64,13 +64,11 @@ const css = `
 .bone-editor button:disabled, .bone-editor input:disabled, .bone-editor select:disabled { opacity: 0.4; cursor: default; }
 `;
 
-// first-version saves held only hand rotations, split by side
-const fromLegacy = (saved) => {
-  const keys = {};
-  for (const side of saved.right || saved.left ? [saved.right, saved.left] : [saved]) {
-    for (const [letter, bones] of Object.entries(side ?? {})) Object.assign((keys[letter] ??= {}), bones);
-  }
-  return { global: {}, keys };
+// short fingerprint of the file's tweaks, to tell which file state a working copy was made against
+const fingerprint = (text) => {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
 };
 
 export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters, onLetter, onStandby }) {
@@ -82,24 +80,26 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       return null;
     }
   };
+  let base = fingerprint(fileState);
+  // The working copy remembers which file state it was made against. When signs.json has changed since (a reset, a
+  // git pull, a hand edit) it is stale and dropped, so old tweaks can't come back from the browser.
   const working = readLS(STORAGE_KEY);
-  const legacy = working ? null : readLS(LEGACY_KEY);
-  if (working) tweaks.load(working);
-  else if (legacy && typeof legacy === 'object') tweaks.load(fromLegacy(legacy));
+  if (working) {
+    if (working.base === base && working.data) tweaks.load(working.data);
+    else console.info('Dropped a stale working copy of the tweaks (signs.json has changed since it was made).');
+  }
+  try {
+    if (working?.base !== base) localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {}
 
   // The working copy only lives in localStorage while it differs from the file.
   const save = () => {
     try {
       if (canon(tweaks.export()) === fileState) localStorage.removeItem(STORAGE_KEY);
-      else localStorage.setItem(STORAGE_KEY, JSON.stringify(tweaks.export()));
+      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ base, data: tweaks.export() }));
     } catch {}
   };
-  if (legacy) {
-    save();
-    try {
-      localStorage.removeItem(LEGACY_KEY);
-    } catch {}
-  }
   let standbyOn = true;
   try {
     standbyOn = localStorage.getItem(STANDBY_KEY) !== '0';
@@ -365,6 +365,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       const res = await fetch(SAVE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
       if (!res.ok) throw new Error(res.status === 404 ? 'ainult dev-serveris (npm run dev)' : await res.text());
       fileState = canon(state);
+      base = fingerprint(fileState);
       save(); // now equal to the file, so the working copy is dropped
       btn.textContent = 'Salvestatud ✓';
     } catch (err) {
