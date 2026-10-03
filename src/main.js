@@ -184,18 +184,20 @@ function say(letter) {
   panel.setActive(letter);
 }
 
-// While the fine-tuning panel is editing, the pressed letter stays shown after release.
 function press(letter) {
   say(letter);
   boneEditor?.setLetter(letter);
 }
+// After release the hands stay in the last sign (the panel keeps it highlighted); only the mouth returns to rest.
+// Escape sends the hands back to standby.
 function release() {
-  if (!boneEditor?.active) say(null);
+  mouth?.setViseme('rest');
 }
 
 let heldKey = null;
 window.addEventListener('keydown', (e) => {
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'SELECT') return;
+  if (e.key === 'Escape') return say(null);
   const letter = e.key.toUpperCase();
   if (letter in LETTERS) {
     heldKey = letter;

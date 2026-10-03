@@ -1,6 +1,6 @@
 # Viiper
 
-A 3D signing avatar that shows the **Estonian finger-spelling alphabet** (*sõrmendid*) together with the matching **mouth shape** for each letter. Press a letter and the character's right hand forms the sign while its lips form the viseme; release it and the hand returns to a standby pose.
+A 3D signing avatar that shows the **Estonian finger-spelling alphabet** (*sõrmendid*) together with the matching **mouth shape** for each letter. Press a letter and the character's right hand forms the sign while its lips form the viseme; release it and the mouth relaxes while the hand holds the sign (Esc returns it to a standby pose).
 
 Built with [three.js](https://threejs.org/) and [Vite](https://vite.dev/). It runs in the browser, with no backend.
 
@@ -19,7 +19,7 @@ Open the URL Vite prints (usually http://localhost:5173).
 
 ## Using it
 
-- **Hold a letter key** (or press a button in the letter panel) to show that letter's hand sign and mouth shape. Release it to return to rest.
+- **Hold a letter key** (or press a button in the letter panel) to show that letter's hand sign and mouth shape. Release it and the mouth relaxes, while the hand stays in the sign until you press another letter or **Esc** (back to standby).
 - Supported letters: `A–Z` as used in Estonian, including `Š Ž Õ Ä Ö Ü`. Some letters, such as `X` and `Q`, are two-handed.
 - **Drag** to orbit, **scroll** to zoom. The *Vaade* panel has zoom buttons, camera presets (front, back, sides, top, three-quarter) and a *signer's view*, which looks at the signing hand from just in front of the eyes, like the finger-spelling chart.
 - The eyes follow the mouse cursor (and look at the camera when the cursor leaves the page).
