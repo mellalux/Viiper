@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import signData from './signs.json';
-import { detectRig } from './rigs.js';
+import signData from '../data/signs.json';
+import { detectRig } from '../character/rigs.js';
 
 // Estonian finger-spelling (sõrmendid) on the model's right hand.
 //

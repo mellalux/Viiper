@@ -24,7 +24,11 @@ const css = `
 }
 .letter-panel__key:hover { background: #38383f; }
 .letter-panel__key.letter-panel__key--active { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
-.letter-panel__hint { padding: 8px 12px 0; color: #9a9aa5; font-size: 12px; }
+.letter-panel__hint { padding: 8px 12px 0; color: #9a9aa5; font-size: 12px; line-height: 1.7; }
+.letter-panel__hint kbd {
+  padding: 1px 6px; border-radius: 4px; font: inherit; font-size: 11px; color: #e8e8ec;
+  background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.18);
+}
 `;
 
 export function createLetterPanel(letters, { onPress, onRelease }) {
@@ -40,7 +44,7 @@ export function createLetterPanel(letters, { onPress, onRelease }) {
       <span class="letter-panel__grip">⋮⋮</span>
     </div>
     <div class="letter-panel__grid"></div>
-    <div class="letter-panel__hint">Hoia nuppu või klahvi all</div>`;
+    <div class="letter-panel__hint">Hoia nuppu või klahvi all<br><kbd>Esc</kbd> – käed puhkeasendisse</div>`;
   const grid = panel.querySelector('.letter-panel__grid');
 
   const keys = new Map();

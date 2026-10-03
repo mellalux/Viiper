@@ -1,4 +1,4 @@
-import signData from './signs.json';
+import signData from '../data/signs.json';
 
 // Skeleton profiles: where each rig keeps the bones the app drives, and how its finger bones are oriented.
 // A profile is picked from the loaded model (detectRig); everything else (hands.js, tweaks.js, ...) asks the profile

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import signData from './signs.json';
+import signData from '../data/signs.json';
 import { detectRig } from './rigs.js';
 
 // Mouth shapes (visemes) driven by Rigify face bones. Offsets are given in model world axes

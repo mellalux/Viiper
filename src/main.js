@@ -3,19 +3,27 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { BLINK_CONFIG, createBlinker } from './blink.js';
-import { LETTERS, createMouth } from './mouth.js';
-import { createLetterPanel } from './letterPanel.js';
-import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './hands.js';
-import { createMorphs } from './morphs.js';
-import { createGaze } from './gaze.js';
-import { createTweaks } from './tweaks.js';
-import { createBoneEditor } from './boneEditor.js';
-import { createViewControls } from './viewControls.js';
-import { detectRig } from './rigs.js';
+import { BLINK_CONFIG, createBlinker } from './character/blink.js';
+import { LETTERS, createMouth } from './character/mouth.js';
+import { createLetterPanel } from './ui/letterPanel.js';
+import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
+import { createMorphs } from './character/morphs.js';
+import { createGaze } from './character/gaze.js';
+import { createTweaks } from './signing/tweaks.js';
+import { createBoneEditor } from './ui/boneEditor.js';
+import { createViewControls } from './ui/viewControls.js';
+import { detectRig } from './character/rigs.js';
 
-// The default model is public/models/Kati.glb; pass ?model=/models/ViiperGirl.glb (or any other .glb) to load another
-const MODEL_URL = new URLSearchParams(location.search).get('model') ?? '/models/Kati.glb';
+// Models live in src/assets/models/ and are bundled by Vite. The default is Kati.glb; pass ?model=ViiperGirl (the file name
+// without .glb) to load another one from that folder, or a full URL / path for a .glb served from elsewhere.
+const MODEL_URLS = Object.fromEntries(
+  Object.entries(import.meta.glob('./assets/models/*.glb', { query: '?url', import: 'default', eager: true })).map(([path, url]) => [
+    path.split('/').pop().replace(/\.glb$/i, ''),
+    url,
+  ]),
+);
+const modelParam = new URLSearchParams(location.search).get('model') ?? 'Kati';
+const MODEL_URL = MODEL_URLS[modelParam] ?? modelParam;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));

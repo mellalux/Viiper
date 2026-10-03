@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import signData from './signs.json';
+import signData from '../data/signs.json';
 import { STANDBY } from './hands.js';
-import { detectRig } from './rigs.js';
+import { detectRig } from '../character/rigs.js';
 
 // Hand-tuned offsets for any bone, layered on top of whatever poses it (hands.js, mouth.js) or its rest pose.
 // Each bone has a rotation (degrees, Euler XYZ in the bone's own axes) and a position offset (millimetres in the

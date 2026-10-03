@@ -27,13 +27,13 @@ Open the URL Vite prints (usually http://localhost:5173).
 
 ### Models
 
-The default model is `public/models/Kati.glb`. Load another `.glb` with the `model` query parameter:
+The default model is `src/assets/models/Kati.glb`. Put more `.glb` files in that folder and load one with the `model` query parameter (the file name without `.glb`):
 
 ```
-http://localhost:5173/?model=/models/ViiperGirl.glb
+http://localhost:5173/?model=ViiperGirl
 ```
 
-Two rig types are supported (see [src/rigs.js](src/rigs.js)): **Rigify** (bone-based face) and **Character Creator** (face made of shape keys). The rig is detected automatically from the bone names.
+Two rig types are supported (see [src/character/rigs.js](src/character/rigs.js)): **Rigify** (bone-based face) and **Character Creator** (face made of shape keys). The rig is detected automatically from the bone names.
 If the model fails to load, a placeholder cube is shown.
 
 ### Debug query parameters
@@ -57,7 +57,7 @@ The *Peenhäälestus* panel lets you adjust the rotation and position of any bon
 2. Adjust it with the sliders. Tweaks apply per letter for the face and the signing arm. They apply to the standby pose for the other arm, and always for the body.
 3. Optionally mirror the edit to the opposite side, or copy the tweaks from another letter.
 
-Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili (signs.json)**. This writes them into [src/signs.json](src/signs.json) and works **only on the dev server**.
+Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili (signs.json)**. This writes them into [src/data/signs.json](src/data/signs.json) and works **only on the dev server**.
 
 ### Save PIN
 
@@ -70,30 +70,34 @@ Writing is guarded by a PIN, which the dev server checks (see [vite.config.js](v
 ## Project layout
 
 ```
-index.html            entry page
-vite.config.js        Vite config + dev-only "save sign tweaks" plugin
-public/models/        .glb character models
+index.html              entry page
+vite.config.js          Vite config + dev-only "save sign tweaks" plugin
+public/                 static files served as-is
 src/
-  main.js             scene, model loading, render loop, keyboard input
-  signs.json          all sign data: hand orientations, thumb poses, signs,
-                      visemes, letter → viseme table, per-rig data, saved tweaks
-  hands.js            finger-spelling poses and arm IK
-  mouth.js            visemes
-  blink.js            eyelid blinking
-  gaze.js             eyes follow the mouse cursor
-  morphs.js           shared shape-key layer (mouth, blink and tweaks add up)
-  tweaks.js           hand-tuned bone / shape offsets layered on top of poses
-  rigs.js             skeleton profiles (Rigify, Character Creator)
-  boneEditor.js       fine-tuning panel
-  letterPanel.js      letter buttons
-  viewControls.js     camera panel
-  draggable.js        draggable, position-remembering panels
-backups/              snapshots of signs.json taken before resets
+  main.js               scene, model loading, render loop, keyboard input
+  assets/models/        .glb character models (bundled by Vite)
+  data/
+    signs.json          all sign data: hand orientations, thumb poses, signs,
+                        visemes, letter → viseme table, per-rig data, saved tweaks
+  character/            the model's face and eyes
+    rigs.js             skeleton profiles (Rigify, Character Creator)
+    morphs.js           shared shape-key layer (mouth, blink and tweaks add up)
+    mouth.js            visemes
+    blink.js            eyelid blinking
+    gaze.js             eyes follow the mouse cursor
+  signing/              finger-spelling
+    hands.js            poses and arm IK
+    tweaks.js           hand-tuned bone / shape offsets layered on top of poses
+  ui/                   panels
+    draggable.js        draggable, position-remembering panels
+    letterPanel.js      letter buttons
+    viewControls.js     camera panel
+    boneEditor.js       fine-tuning panel
 ```
 
 ### How a sign is described
 
-`src/signs.json` is the source of truth and can be edited by hand.
+`src/data/signs.json` is the source of truth and can be edited by hand.
 
 - `orient`: where the hand is held and which way it points (world directions and a wrist target relative to the shoulder).
 - `thumbPoses`: thumb joint rotations.
@@ -101,7 +105,7 @@ backups/              snapshots of signs.json taken before resets
 - `visemes` and `letters`: mouth shapes and which letter uses which.
 - `global`: tweaks that always apply (body).
 
-Details are in the header comments of [src/hands.js](src/hands.js), [src/mouth.js](src/mouth.js) and [src/tweaks.js](src/tweaks.js).
+Details are in the header comments of [src/signing/hands.js](src/signing/hands.js), [src/character/mouth.js](src/character/mouth.js) and [src/signing/tweaks.js](src/signing/tweaks.js).
 
 ## Notes
 

@@ -3,13 +3,13 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { makeDraggable } from './draggable.js';
-import { STANDBY } from './hands.js';
-import { GROUPS } from './tweaks.js';
+import { STANDBY } from '../signing/hands.js';
+import { GROUPS } from '../signing/tweaks.js';
 
 // Fine-tuning panel for every bone (arms and fingers, face and lips, body): tick "Muuda märki" to hold a sign,
 // pick a group and a bone (from the list or by clicking its marker), then dial rotation and position with the sliders.
 // Edits apply per sign (face, signing arm), only to the standby pose (the other arm) or always (body) - see tweaks.js.
-// src/signs.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
+// src/data/signs.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
 // writes them back into that file (dev server only).
 const STORAGE_KEY = 'viiper.tweaks';
 const LEGACY_KEY = 'viiper.fingerTweaks'; // the first version's storage; no longer read, just removed
@@ -130,7 +130,7 @@ const fingerprint = (text) => {
 };
 
 export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters, onLetter, onStandby }) {
-  let fileState = canon(tweaks.export()); // what src/signs.json holds
+  let fileState = canon(tweaks.export()); // what src/data/signs.json holds
   const readLS = (k) => {
     try {
       return JSON.parse(localStorage.getItem(k));

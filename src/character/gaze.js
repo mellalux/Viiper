@@ -9,7 +9,7 @@ import { detectRig } from './rigs.js';
 // from the rest look direction (the model's +Z, "forward") to the direction of the target, then applied on top of the
 // bone's rest rotation.
 export const GAZE_CONFIG = {
-  maxAngle: 16, // degrees an eye can turn away from straight ahead
+  maxAngle: 20, // degrees an eye can turn away from straight ahead
   smoothing: 14, // higher = snappier
 };
 

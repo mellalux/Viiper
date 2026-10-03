@@ -2,10 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/signs.json.
+// Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/data/signs.json.
 // Writing needs the PIN kept in .save-pin (git-ignored; edit the file to change it). The server checks it, not the page.
 const SAVE_URL = '/__save-sign-tweaks';
-const SIGNS_FILE = 'src/signs.json';
+const SIGNS_FILE = 'src/data/signs.json';
 const PIN_FILE = '.save-pin';
 const MAX_WRONG_PINS = 5; // this many wrong PINs in a row lock saving for a minute
 const LOCK_MS = 60_000;
