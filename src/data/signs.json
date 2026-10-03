@@ -859,6 +859,7 @@
     },
     "Z": {
       "left": {},
+      "motion": { "note": "the fingertip draws a Z in the air as the viewer sees it: right, down-left, right (wrist offsets in arm lengths, +x = viewer's right)", "path": [[0, 0], [0.12, 0], [0, -0.18], [0.12, -0.18]], "duration": 1.4 },
       "tweaks": {
         "CC_Base_L_Forearm": { "rot": [83, 60, -3] },
         "CC_Base_L_Thumb1": { "rot": [-10, 0, 0] },

@@ -46,6 +46,29 @@ const LEFT_DEFAULTS = { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], thumb: 'res
 
 const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 
+// A sign can move the hand while it is shown (Z draws its letter in the air): `motion` = { path, duration } in signs.json.
+// path = wrist offsets [x, y] from the tuned pose, in units of the arm's full length (+x = the viewer's right, +y up);
+// the first point is the pose as tuned, so it should be [0, 0]. The hand takes the path once, slowing at the corners.
+const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path
+const smooth = (s) => s * s * (3 - 2 * s);
+
+/** Point at fraction `r` (0..1) of the path; every segment gets a share of the time in proportion to its length. */
+function tracePoint(path, r, out) {
+  const lens = path.slice(1).map((b, i) => Math.hypot(b[0] - path[i][0], b[1] - path[i][1]));
+  const total = lens.reduce((a, b) => a + b, 0) || 1;
+  let acc = 0;
+  for (let i = 0; i < lens.length; i++) {
+    const share = lens[i] / total;
+    if (r <= acc + share || i === lens.length - 1) {
+      const e = smooth(Math.min(Math.max((r - acc) / share, 0), 1));
+      const [a, b] = [path[i], path[i + 1]];
+      return out.set(a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e, 0);
+    }
+    acc += share;
+  }
+  return out.set(0, 0, 0);
+}
+
 export function createHands(root, side = 'R') {
   root.updateMatrixWorld(true);
   const rig = detectRig(root);
@@ -110,6 +133,56 @@ export function createHands(root, side = 'R') {
   const q = new THREE.Quaternion();
   const m = new THREE.Matrix4();
   const eul = new THREE.Euler();
+
+  // --- motion along a sign's path (see MOTION_LEAD): `off` is the wrist offset in arm lengths, applied after the tweaks ---
+  const motion = { def: null, t: 0, from: new THREE.Vector3(), off: new THREE.Vector3(), paused: false };
+
+  const stepMotion = (dt, k) => {
+    const def = motion.def;
+    if (!def || motion.paused) {
+      // no path (or the editor / a frozen pose holds the start): ease back to the tuned pose, at once when paused
+      if (motion.paused) motion.t = 0;
+      motion.off.multiplyScalar(motion.paused ? 0 : 1 - k);
+      return;
+    }
+    motion.t += Math.min(dt, 0.05); // a stalled frame must not skip the drawing
+    if (motion.t < MOTION_LEAD) motion.off.copy(motion.from).multiplyScalar(1 - smooth(motion.t / MOTION_LEAD));
+    else tracePoint(def.path, (motion.t - MOTION_LEAD) / def.duration, motion.off);
+  };
+
+  const applyMotion = () => {
+    if (motion.off.lengthSq() < 1e-8) return;
+    upperArm.updateWorldMatrix(true, true);
+    const shoulder = wp(upperArm);
+    const elbow = wp(foreArm);
+    const wrist = wp(hand);
+    const handQ = wq(hand);
+    const len1 = shoulder.distanceTo(elbow);
+    const len2 = elbow.distanceTo(wrist);
+    const scale = (len1 + len2) * cur.tw;
+    const target = wrist.clone().add(new THREE.Vector3(motion.off.x * scale, motion.off.y * scale, 0));
+    // two-bone IK to the moved wrist, the elbow keeping the side it is on now
+    const d = target.clone().sub(shoulder);
+    const dist = Math.min(Math.max(d.length(), 1e-3), len1 + len2 - 1e-4);
+    const u = d.normalize();
+    const pole = elbow.clone().sub(shoulder);
+    const wasU = wrist.clone().sub(shoulder).normalize();
+    pole.addScaledVector(wasU, -pole.dot(wasU));
+    pole.addScaledVector(u, -pole.dot(u)).normalize();
+    const a = (len1 * len1 - len2 * len2 + dist * dist) / (2 * dist);
+    const h = Math.sqrt(Math.max(len1 * len1 - a * a, 0));
+    const newElbow = shoulder.clone().addScaledVector(u, a).addScaledVector(pole, h);
+
+    const parentInv = upperArm.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const uaQ = new THREE.Quaternion().setFromUnitVectors(elbow.clone().sub(shoulder).normalize(), newElbow.clone().sub(shoulder).normalize());
+    const faDir = wrist.clone().sub(elbow).normalize().applyQuaternion(uaQ);
+    const faQ = new THREE.Quaternion().setFromUnitVectors(faDir, target.clone().sub(newElbow).normalize()).multiply(uaQ);
+    const newUa = uaQ.multiply(wq(upperArm));
+    const newFa = faQ.multiply(wq(foreArm));
+    upperArm.quaternion.copy(parentInv.multiply(newUa));
+    foreArm.quaternion.copy(newUa.clone().invert().multiply(newFa));
+    hand.quaternion.copy(newFa.invert().multiply(handQ)); // the hand keeps pointing the way it did
+  };
 
   const handQuat = (orient) => {
     const y = new THREE.Vector3(...orient.finger).normalize();
@@ -204,6 +277,9 @@ export function createHands(root, side = 'R') {
       requested = l;
       const own = side === 'L' ? SIGNS[l]?.left && { ...LEFT_DEFAULTS, ...SIGNS[l].left } : SIGNS[l];
       const key = own ? l : standby ? STANDBY : null;
+      motion.def = own?.motion ?? null; // a pressed letter with a path draws it from the start
+      motion.t = 0;
+      motion.from.copy(motion.off);
       const sign = own || SIGNS[key];
       // A sign without finger data is undefined: the hand stays as the model has it (w = 0) and only the hand-tuned
       // offsets of that sign show, which is how a sign gets defined from scratch.
@@ -260,6 +336,13 @@ export function createHands(root, side = 'R') {
       cur.pole.lerp(tgt.pole, k);
       cur.maxBend += (tgt.maxBend - cur.maxBend) * k;
       pose();
+      stepMotion(dt, k);
+    },
+    /** Move the hand along its sign's path; call after the tweaks have been applied. */
+    applyMotion,
+    /** True while the path must not play (frozen debug pose, bone editor open): the hand holds the tuned pose. */
+    set motionPaused(v) {
+      motion.paused = v;
     },
   };
   return api;

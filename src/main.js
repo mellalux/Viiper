@@ -171,6 +171,11 @@ renderer.setAnimationLoop(() => {
   handsL?.update(frozenSign ? 0 : dt);
   mouth?.update(params.has('viseme') ? 0 : dt);
   tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
+  for (const h of [hands, handsL]) {
+    if (!h) continue;
+    h.motionPaused = frozenSign || (boneEditor?.active ?? false); // tuning a sign needs it to hold still
+    h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
+  }
   gaze?.update(dt);
   morphs?.flush();
   boneEditor?.update();
