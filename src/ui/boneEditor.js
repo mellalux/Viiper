@@ -4,7 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { makeDraggable } from './draggable.js';
 import { STANDBY } from '../signing/hands.js';
-import { GROUPS } from '../signing/tweaks.js';
+import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 
 // Fine-tuning panel for every bone (arms and fingers, face and lips, body): tick "Muuda märki" to hold a sign,
 // pick a group and a bone (from the list or by clicking its marker), then dial rotation and position with the sliders.
@@ -216,6 +216,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       </div>
       <div class="bone-editor__buttons">
         <button data-role="save-file">Salvesta faili (signs.json)</button>
+        <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb signs.json-i seaded">Lae failist</button>
       </div>
     </div>`;
   document.body.appendChild(panel);
@@ -458,7 +459,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     undoBtn.disabled = true;
     save();
     refresh();
-    copyNote.textContent = 'Kopeerimine tagasi võetud.';
+    copyNote.textContent = 'Tagasi võetud.';
   });
 
   $('copy').addEventListener('click', async (e) => {
@@ -472,6 +473,18 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       btn.textContent = 'Vaata konsooli';
     }
     setTimeout(() => (btn.textContent = 'Kopeeri'), 1500);
+  });
+  // drop the browser's working copy and show what signs.json holds (one step of undo, like a copy)
+  $('load-file').addEventListener('click', () => {
+    if (canon(tweaks.export()) !== fileState && !confirm('Kustutan brauseri töökoopia ja laen signs.json-i seaded? Salvestamata muudatused lähevad kaduma.')) return;
+    undoSnapshot = tweaks.export();
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    tweaks.load(tweaksFromSigns());
+    undoBtn.disabled = false;
+    refresh();
+    copyNote.textContent = 'Laetud signs.json-ist, töökoopia kustutatud.';
   });
   $('save-file').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
