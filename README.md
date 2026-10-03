@@ -22,6 +22,7 @@ Open the URL Vite prints (usually http://localhost:5173).
 - **Hold a letter key** (or press a button in the letter panel) to show that letter's hand sign and mouth shape. Release it to return to rest.
 - Supported letters: `A–Z` as used in Estonian, including `Š Ž Õ Ä Ö Ü`. Some letters, such as `X` and `Q`, are two-handed.
 - **Drag** to orbit, **scroll** to zoom. The *Vaade* panel has zoom buttons, camera presets (front, back, sides, top, three-quarter) and a *signer's view*, which looks at the signing hand from just in front of the eyes, like the finger-spelling chart.
+- The eyes follow the mouse cursor (and look at the camera when the cursor leaves the page).
 - All panels are draggable by their title bar and remember where you left them.
 
 ### Models
@@ -42,6 +43,7 @@ If the model fails to load, a placeholder cube is shown.
 | `?sign=B` | Freeze the hand in that letter's sign |
 | `?viseme=O` | Freeze the mouth in that viseme |
 | `?face=1` / `?face=mouth` | Frame the face / the mouth |
+| `?gaze=0` | Keep the eyes from following the mouse cursor |
 | `?blink=0..1` | Freeze the eyelids at that closure |
 | `?openAngle=`, `?closedAngle=`, `?scale=` | Override the eyelid dome (Rigify) |
 
@@ -78,6 +80,7 @@ src/
   hands.js            finger-spelling poses and arm IK
   mouth.js            visemes
   blink.js            eyelid blinking
+  gaze.js             eyes follow the mouse cursor
   morphs.js           shared shape-key layer (mouth, blink and tweaks add up)
   tweaks.js           hand-tuned bone / shape offsets layered on top of poses
   rigs.js             skeleton profiles (Rigify, Character Creator)

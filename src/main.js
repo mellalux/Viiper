@@ -8,6 +8,7 @@ import { LETTERS, createMouth } from './mouth.js';
 import { createLetterPanel } from './letterPanel.js';
 import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './hands.js';
 import { createMorphs } from './morphs.js';
+import { createGaze } from './gaze.js';
 import { createTweaks } from './tweaks.js';
 import { createBoneEditor } from './boneEditor.js';
 import { createViewControls } from './viewControls.js';
@@ -66,10 +67,11 @@ let handsL = null; // the other hand: only ever in its standby pose
 let morphs = null; // the model's shape keys (face morph targets), summed over their drivers
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from signs.json
 let boneEditor = null;
+let gaze = null; // turns the eyes towards the mouse cursor
 
 // Debug helpers: ?blink=0..1 freezes the lids at that closure, ?face=1 frames the face (?face=mouth the mouth),
 // ?openAngle=, ?closedAngle=, ?scale= override the eyelid dome. ?viseme=O freezes the mouth in that shape,
-// ?sign=B freezes the hand in that letter's finger-spelling sign.
+// ?sign=B freezes the hand in that letter's finger-spelling sign, ?gaze=0 keeps the eyes from following the cursor.
 const params = new URLSearchParams(location.search);
 
 // Default view: front-on, head to waist, so the face and the signing hand are both visible.
@@ -93,18 +95,22 @@ loader.load(
     tweaks = createTweaks(gltf.scene, { weight: (side) => (side === 'L' ? handsL : hands)?.weight ?? 0, morphs }); // before anything poses the rig
     blinker = createBlinker(gltf.scene, { morphs });
     mouth = createMouth(gltf.scene, { morphs });
+    if (params.get('gaze') !== '0') gaze = createGaze(gltf.scene, { camera });
     if (params.has('viseme')) mouth?.snapViseme(params.get('viseme'));
     hands = createHands(gltf.scene, 'R');
     handsL = createHands(gltf.scene, 'L');
-    boneEditor = createBoneEditor({
-      scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
-      onLetter: say,
-      onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
-    });
+    // the fine-tuning panel (and its save button) only exists on the dev server, not in the production build
+    if (import.meta.env.DEV) {
+      boneEditor = createBoneEditor({
+        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
+        onLetter: say,
+        onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
+      });
+    }
     // start in the standby pose (or the ?sign= letter) instead of rising from a hanging arm
     hands?.snapSign(params.get('sign'));
     handsL?.snapSign(params.get('sign'));
-    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, morphs, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
+    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
     window.__modelReady = true;
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
@@ -157,6 +163,7 @@ renderer.setAnimationLoop(() => {
   handsL?.update(frozenSign ? 0 : dt);
   mouth?.update(params.has('viseme') ? 0 : dt);
   tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
+  gaze?.update(dt);
   morphs?.flush();
   boneEditor?.update();
   viewControls.update(); // the signer's view follows the hand
