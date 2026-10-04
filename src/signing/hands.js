@@ -52,6 +52,9 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 // path = wrist offsets [x, y] from the tuned pose, in units of the arm's full length (+x = the viewer's right, +y up);
 // the first point is the pose as tuned, so it should be [0, 0]. The hand takes the path once, slowing at the corners.
 const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path
+// Two equal letters in a row: the hand makes a small push forward and back (BUMP_DEPTH in arm lengths, +z = the character's front).
+export const BUMP_SECONDS = 0.3;
+const BUMP_DEPTH = 0.07;
 const smooth = (s) => s * s * (3 - 2 * s);
 
 /** Point at fraction `r` (0..1) of the path; every segment gets a share of the time in proportion to its length. */
@@ -138,12 +141,18 @@ export function createHands(root, side = 'R') {
 
   // --- motion along a sign's path (see MOTION_LEAD): `off` is the wrist offset in arm lengths, applied after the tweaks ---
   const motion = { def: null, t: 0, from: new THREE.Vector3(), off: new THREE.Vector3(), paused: false };
+  let bumpT = null; // seconds into the repeat bump, null when not bumping
 
   const stepMotion = (dt, k) => {
+    if (bumpT !== null && !motion.paused) {
+      bumpT += Math.min(dt, 0.05);
+      if (bumpT >= BUMP_SECONDS) bumpT = null;
+    }
     const def = motion.def;
     if (!def || motion.paused) {
       // no path (or the editor / a frozen pose holds the start): ease back to the tuned pose, at once when paused
       if (motion.paused) motion.t = 0;
+      if (motion.paused) bumpT = null;
       motion.off.multiplyScalar(motion.paused ? 0 : 1 - k);
       return;
     }
@@ -153,7 +162,8 @@ export function createHands(root, side = 'R') {
   };
 
   const applyMotion = () => {
-    if (motion.off.lengthSq() < 1e-8) return;
+    const bump = bumpT === null ? 0 : Math.sin((Math.PI * bumpT) / BUMP_SECONDS) * BUMP_DEPTH;
+    if (motion.off.lengthSq() < 1e-8 && !bump) return;
     upperArm.updateWorldMatrix(true, true);
     const shoulder = wp(upperArm);
     const elbow = wp(foreArm);
@@ -162,7 +172,7 @@ export function createHands(root, side = 'R') {
     const len1 = shoulder.distanceTo(elbow);
     const len2 = elbow.distanceTo(wrist);
     const scale = (len1 + len2) * cur.tw;
-    const target = wrist.clone().add(new THREE.Vector3(motion.off.x * scale, motion.off.y * scale, 0));
+    const target = wrist.clone().add(new THREE.Vector3(motion.off.x * scale, motion.off.y * scale, bump * scale));
     // two-bone IK to the moved wrist, the elbow keeping the side it is on now
     const d = target.clone().sub(shoulder);
     const dist = Math.min(Math.max(d.length(), 1e-3), len1 + len2 - 1e-4);
@@ -301,6 +311,10 @@ export function createHands(root, side = 'R') {
       tgt.reach.set(...o.reach);
       tgt.maxBend = o.maxBend ?? HAND_CONFIG.maxWristBend;
       tgt.pole.set(...(o.pole ?? mx(HAND_CONFIG.pole)));
+    },
+    /** A small push forward and back, for a letter repeated right after itself. Does nothing in standby or with the arm lowered. */
+    bump() {
+      if (tgt.tw > 0 && letter !== STANDBY) bumpT = 0;
     },
     /** Whether the hand waits in the standby pose between signs (true) or lowers the arm (false). */
     setStandby(on) {

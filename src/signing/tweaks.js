@@ -224,6 +224,12 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       }
       return structuredClone({ global: { ...foreign.global, ...data.global }, keys });
     },
+    /** Whether the left arm does something in `letter` (its tweaks differ from standby's), i.e. the letter is two-handed. */
+    usesLeftArm(letter) {
+      const own = bucket(letter);
+      const rest = bucket(STANDBY);
+      return bones.some((e) => e.group === 'left' && JSON.stringify(own?.[e.name] ?? null) !== JSON.stringify(rest?.[e.name] ?? null));
+    },
     /** The sign being shown (a letter, STANDBY or null) selects which tweaks apply to face and signing arm. */
     setKey(key) {
       if (key === currentKey) return;

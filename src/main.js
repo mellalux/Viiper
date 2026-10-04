@@ -6,6 +6,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { BLINK_CONFIG, createBlinker } from './character/blink.js';
 import { LETTERS, createMouth } from './character/mouth.js';
 import { createLetterPanel } from './ui/letterPanel.js';
+import { createTextPanel } from './ui/textPanel.js';
 import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
 import { createMorphs } from './character/morphs.js';
 import { createGaze } from './character/gaze.js';
@@ -188,6 +189,18 @@ renderer.setAnimationLoop(() => {
 const panel = createLetterPanel(Object.keys(LETTERS), {
   onPress: press,
   onRelease: release,
+});
+
+// Text box: the typed letters are signed one after another.
+createTextPanel(Object.keys(LETTERS), {
+  onPress: press,
+  onRelease: release,
+  onFinish: () => say(null), // the word is done (or stopped): hands back to standby
+  // equal letters in a row: the hand(s) that sign the letter make a small push forward and back
+  onRepeat: (letter) => {
+    hands?.bump();
+    if (tweaks?.usesLeftArm(letter)) handsL?.bump();
+  },
 });
 
 function say(letter) {
