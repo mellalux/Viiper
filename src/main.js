@@ -18,6 +18,7 @@ import { createBoneEditor } from './ui/boneEditor.js';
 import { createSignEditor } from './ui/signEditor.js';
 import * as signDefs from './signing/signDefs.js';
 import { createViewControls } from './ui/viewControls.js';
+import { createSplash } from './ui/splash.js';
 import { detectRig } from './character/rigs.js';
 
 // Models live in src/assets/models/ and are bundled by Vite. The default is Kati.glb; pass ?model=ViiperGirl (the file name
@@ -30,6 +31,8 @@ const MODEL_URLS = Object.fromEntries(
 );
 const modelParam = new URLSearchParams(location.search).get('model') ?? 'Kati';
 const MODEL_URL = MODEL_URLS[modelParam] ?? modelParam;
+
+const splash = createSplash();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -166,10 +169,12 @@ loader.load(
       mixer = new THREE.AnimationMixer(gltf.scene);
       gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
     }
+    splash.done();
   },
-  undefined,
+  (e) => splash.progress(e.lengthComputable ? e.loaded / e.total : null),
   (err) => {
     console.warn(`Could not load ${MODEL_URL}, showing placeholder cube.`, err);
+    splash.done();
     const cube = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
       new THREE.MeshStandardMaterial({ color: 0x44aaff }),

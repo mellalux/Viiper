@@ -17,6 +17,7 @@
 
     <link rel="canonical" href="https://viiper.lux.ee/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" as="image" href="/og-image.png" />
 
     <!-- Open Graph / sotsiaalmeedia -->
     <meta property="og:type" content="website" />
@@ -67,9 +68,36 @@
         position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
         overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
       }
+      /* Laadimisekraan: näha kohe, kuni Kati (3D-mudel) laeb; src/ui/splash.js täidab riba ja peidab selle. */
+      #splash {
+        position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 18px;
+        background: #111; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif;
+        transition: opacity 0.4s ease;
+      }
+      #splash.splash--done { opacity: 0; pointer-events: none; }
+      #splash img { display: block; width: min(90vw, 840px); max-height: 62vh; height: auto; object-fit: contain;
+        -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent), linear-gradient(to right, transparent, #000 10%, #000 90%, transparent); -webkit-mask-composite: source-in; mask-composite: intersect;
+        mask-image: linear-gradient(to bottom, #000 75%, transparent), linear-gradient(to right, transparent, #000 10%, #000 90%, transparent); }
+      #splash p { margin: 0; font-size: 16px; color: #aab0bd; }
+      .splash__bar { width: 220px; height: 4px; border-radius: 2px; background: #2a2d36; overflow: hidden; }
+      .splash__fill { height: 100%; width: 0; border-radius: 2px; background: #f2c9a0; transition: width 0.2s ease; }
+      /* kuni suurus pole teada, jookseb riba edasi-tagasi */
+      .splash__bar--indeterminate .splash__fill { width: 40%; animation: splash-slide 1.2s ease-in-out infinite; }
+      @keyframes splash-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      @media (prefers-reduced-motion: reduce) {
+        #splash { transition: none; }
+        .splash__bar--indeterminate .splash__fill { animation: none; width: 100%; opacity: 0.5; }
+      }
     </style>
+    <noscript><style>#splash { display: none; }</style></noscript>
   </head>
   <body>
+    <div id="splash" role="status" aria-live="polite">
+      <img src="/og-image.png" width="1200" height="630" alt="Viiper" />
+      <div class="splash__bar splash__bar--indeterminate"><div class="splash__fill"></div></div>
+      <p id="splash-text">Kati laeb…</p>
+    </div>
     <main class="sr-only">
       <h1>Viiper – eesti viipekeel: sõrmendid ja viiped</h1>
       <p>
