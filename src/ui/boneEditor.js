@@ -3,11 +3,13 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { makeDraggable } from './draggable.js';
+import { askPin } from './pin.js';
 import { STANDBY } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 
 // Fine-tuning panel for every bone (arms and fingers, face and lips, body): tick "Muuda märki" to hold a sign,
-// pick a group and a bone (from the list or by clicking its marker), then dial rotation and position with the sliders.
+// pick a group and a bone (from the list or by clicking its marker), then dial its rotation with the sliders. (A bone's position offset, "pos" in the data, is no longer edited here, but tweaks that
+// have one keep it.)
 // Edits apply per sign (face, signing arm), only to the standby pose (the other arm) or always (body) - see tweaks.js.
 // src/data/fingerspelling.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
 // writes them back into that file (dev server only).
@@ -17,52 +19,11 @@ const STANDBY_KEY = 'viiper.standby';
 const POS_KEY = 'viiper.boneEditor';
 const SAVE_URL = '/__save-sign-tweaks';
 
-/** Ask for the save PIN in a small modal (masked input). Resolves to the typed PIN, or null when cancelled. */
-function askPin() {
-  if (document.querySelector('.pin-dialog')) return Promise.resolve(null); // already asking
-  return new Promise((resolve) => {
-    const overlay = document.createElement('div');
-    overlay.className = 'pin-dialog';
-    overlay.innerHTML = `
-      <form class="pin-dialog__box">
-        <div class="pin-dialog__title">Salvesta faili</div>
-        <div>Sisesta PIN, et muudatused fingerspelling.json-i kirjutada.</div>
-        <input type="password" inputmode="numeric" autocomplete="off" aria-label="PIN" />
-        <div class="pin-dialog__buttons">
-          <button type="button" data-role="cancel">Tühista</button>
-          <button type="submit" data-role="ok">Salvesta</button>
-        </div>
-      </form>`;
-    const input = overlay.querySelector('input');
-    const finish = (value) => {
-      overlay.remove();
-      resolve(value);
-    };
-    overlay.querySelector('form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      finish(input.value);
-    });
-    overlay.querySelector('[data-role="cancel"]').addEventListener('click', () => finish(null));
-    overlay.addEventListener('pointerdown', (e) => e.target === overlay && finish(null));
-    // keys typed here must not reach the letter shortcuts (a PIN may contain letters) nor close anything else
-    overlay.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Escape') finish(null);
-    });
-    overlay.addEventListener('keyup', (e) => e.stopPropagation());
-    document.body.appendChild(overlay);
-    input.focus();
-  });
-}
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
-// slider ranges: rotation in degrees; position in millimetres (the face needs much finer steps than the body)
+// slider range: rotation in degrees
 const ROT_RANGE = 120;
-const POS_RANGE = { face: { max: 30, step: 0.1 }, left: { max: 100, step: 0.5 }, right: { max: 100, step: 0.5 }, body: { max: 150, step: 0.5 } };
-const SLIDERS = [
-  ['Pööre X', '°'], ['Pööre Y', '°'], ['Pööre Z', '°'],
-  ['Nihe külg', ' mm'], ['Nihe üles', ' mm'], ['Nihe ette', ' mm'],
-];
+const SLIDERS = [['Pööre X', '°'], ['Pööre Y', '°'], ['Pööre Z', '°']];
 
 const css = `
 .bone-editor {
@@ -100,26 +61,6 @@ const css = `
 }
 .bone-editor button:hover:not(:disabled) { background: #38383f; }
 .bone-editor button:disabled, .bone-editor input:disabled, .bone-editor select:disabled { opacity: 0.4; cursor: default; }
-.pin-dialog {
-  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55);
-  font: 13px system-ui, sans-serif; color: #e8e8ec;
-}
-.pin-dialog__box {
-  width: 260px; padding: 16px; display: grid; gap: 10px; border-radius: 12px;
-  background: rgba(24, 24, 28, 0.97); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-}
-.pin-dialog__title { font-weight: 600; }
-.pin-dialog input {
-  padding: 8px 10px; border-radius: 8px; font: inherit; font-size: 18px; letter-spacing: 0.3em; text-align: center;
-  color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.14);
-}
-.pin-dialog__buttons { display: flex; gap: 8px; }
-.pin-dialog button {
-  flex: 1; padding: 7px 4px; border-radius: 8px; cursor: pointer; font: inherit;
-  color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.pin-dialog button:hover { background: #38383f; }
-.pin-dialog button[data-role="ok"] { background: #2f9e6e; border-color: #5fd0a0; }
 `;
 
 // short fingerprint of the file's tweaks, to tell which file state a working copy was made against
@@ -129,7 +70,7 @@ const fingerprint = (text) => {
   return (h >>> 0).toString(36);
 };
 
-export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters, onLetter, onStandby }) {
+export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters, onLetter, onStandby, onOpenSignEditor = null, twistAngles = null }) {
   let fileState = canon(tweaks.export()); // what src/data/fingerspelling.json holds
   const readLS = (k) => {
     try {
@@ -175,9 +116,11 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       <span class="bone-editor__grip">⋮⋮</span>
     </div>
     <div class="bone-editor__body">
+      <div class="bone-editor__buttons"><button data-role="open-signs" title="Käe asend, sõrmed ja liikumine (viipe enda andmed)">Viipe seaded…</button></div>
       <label class="bone-editor__row"><span>Muuda märki</span><input type="checkbox" data-role="active" /></label>
       <label class="bone-editor__row"><span>Ooteasend tähtede vahel</span><input type="checkbox" data-role="standby" /></label>
       <label class="bone-editor__row"><span>Täht</span><select data-role="letter"></select></label>
+      <div class="bone-editor__bone" data-role="twist" title="Kui palju käelaba on eelkäsivarre suhtes keerdus (0° = lõtv käsi, ±90° = peopesa pööratud, üle ±100° näeb käsivars keerdus välja). Parandus: muuda küünarnuki suunda (pole) või käe asendit, vt README."></div>
       <label class="bone-editor__row"><span>Rühm</span><select data-role="group"></select></label>
       <div class="bone-editor__row">
         <label class="bone-editor__row bone-editor__pick"><span data-role="bone-title">Luu</span><select data-role="bone"></select></label>
@@ -188,7 +131,6 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       <div class="bone-editor__bone" data-role="label"></div>
       ${SLIDERS.map(
         ([label], i) => `
-        ${i === 3 ? '<div class="bone-editor__sep" data-role="pos-sep">Nihe mudeli telgedes</div>' : ''}
         <label class="bone-editor__slider">
           <span data-role="slider-label">${label}</span>
           <input type="range" value="0" data-i="${i}" />
@@ -215,7 +157,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
         <button data-role="copy">Kopeeri</button>
       </div>
       <div class="bone-editor__buttons">
-        <button data-role="save-file">Salvesta faili (fingerspelling.json)</button>
+        <button data-role="save-file">Salvesta faili (fingerspelling.json / words.json)</button>
         <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb fingerspelling.json-i seaded">Lae failist</button>
       </div>
     </div>`;
@@ -229,6 +171,9 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
   const mirrorBox = $('mirror');
   const linesBox = $('lines');
   const label = $('label');
+  $('open-signs').addEventListener('click', () => onOpenSignEditor?.());
+  const twistInfo = $('twist');
+  let twistText = '';
   const sliders = [...panel.querySelectorAll('input[type=range]')];
   const outputs = sliders.map((s) => s.nextElementSibling);
   const copyFrom = $('copy-from');
@@ -306,9 +251,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     const e = sel();
     const shapes = groupSel.value === 'shapes';
     const val = e ? tweaks.get(editKey(), e.name) : { rot: [0, 0, 0], pos: [0, 0, 0], w: 0 };
-    const range = POS_RANGE[groupSel.value] ?? POS_RANGE.face;
     $('bone-title').textContent = shapes ? 'Vorm' : 'Luu';
-    $('pos-sep').style.display = shapes ? 'none' : '';
     sliders.forEach((s, i) => {
       // a shape key has a single number, its weight: only the first slider is used, relabelled
       s.closest('.bone-editor__slider').style.display = shapes && i > 0 ? 'none' : '';
@@ -322,13 +265,11 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
         outputs[i].textContent = i === 0 ? val.w.toFixed(2) : '';
         return;
       }
-      const rot = i < 3;
-      s.min = rot ? -ROT_RANGE : -range.max;
-      s.max = rot ? ROT_RANGE : range.max;
-      s.step = rot ? 1 : range.step;
-      const x = (rot ? val.rot : val.pos)[i % 3];
-      s.value = x;
-      outputs[i].textContent = `${rot ? x : x.toFixed(range.step < 1 ? 1 : 0)}${SLIDERS[i][1]}`;
+      s.min = -ROT_RANGE;
+      s.max = ROT_RANGE;
+      s.step = 1;
+      s.value = val.rot[i];
+      outputs[i].textContent = `${val.rot[i]}${SLIDERS[i][1]}`;
     });
     $('reset-bone').disabled = !e;
     mirrorBox.disabled = !e?.mirrorName;
@@ -408,7 +349,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
       const e = sel();
       if (!e) return;
       const x = sliders.map((el) => +el.value);
-      write(e, e.shape ? { w: x[0] } : { rot: x.slice(0, 3), pos: x.slice(3) });
+      write(e, e.shape ? { w: x[0] } : { rot: x, pos: tweaks.get(editKey(), e.name).pos }); // the position offset stays as it is
       refresh();
     }),
   );
@@ -542,6 +483,15 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     },
     /** Keep markers and lines on their bones (markers at a constant on-screen size); call once per frame after everything is posed. */
     update() {
+      if (twistAngles) {
+        const [r, l] = twistAngles();
+        const text = `Randme väänd: parem ${r}°, vasak ${l}°${Math.abs(r) > 100 || Math.abs(l) > 100 ? '  ⚠ käsivars võib näida keerdus' : ''}`;
+        if (text !== twistText) {
+          twistText = text;
+          twistInfo.textContent = text;
+          twistInfo.style.color = text.includes('⚠') ? '#ffb347' : '';
+        }
+      }
       if (!active) return;
       const show = linesBox.checked;
       lines.visible = hot.visible = show;

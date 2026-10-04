@@ -7,11 +7,16 @@ import { BLINK_CONFIG, createBlinker } from './character/blink.js';
 import { LETTERS, createMouth } from './character/mouth.js';
 import { createLetterPanel } from './ui/letterPanel.js';
 import { createTextPanel } from './ui/textPanel.js';
-import { SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
+import { SIGNS, STANDBY, WORD_FORMS, MOTION_LEAD, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
 import { createMorphs } from './character/morphs.js';
 import { createGaze } from './character/gaze.js';
 import { createTweaks } from './signing/tweaks.js';
+import { createLimits } from './signing/limits.js';
+import { createBody } from './signing/body.js';
+import { createTwist } from './signing/twist.js';
 import { createBoneEditor } from './ui/boneEditor.js';
+import { createSignEditor } from './ui/signEditor.js';
+import * as signDefs from './signing/signDefs.js';
 import { createViewControls } from './ui/viewControls.js';
 import { detectRig } from './character/rigs.js';
 
@@ -74,13 +79,18 @@ let mouth = null;
 let hands = null; // the signing (right) hand
 let handsL = null; // the other hand: only ever in its standby pose
 let morphs = null; // the model's shape keys (face morph targets), summed over their drivers
+let limits = null; // joint limits of the fingers
+let twist = null; // shares the hand's twist out over the forearm so the wrist skin isn't wrung
+let body = null; // collision shape of the trunk and head, keeps the arms out of it
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
 let boneEditor = null;
+let signEditor = null; // the sign definitions window (dev server only)
 let gaze = null; // turns the eyes towards the mouse cursor
 
 // Debug helpers: ?blink=0..1 freezes the lids at that closure, ?face=1 frames the face (?face=mouth the mouth),
 // ?openAngle=, ?closedAngle=, ?scale= override the eyelid dome. ?viseme=O freezes the mouth in that shape,
-// ?sign=B freezes the hand in that letter's finger-spelling sign, ?gaze=0 keeps the eyes from following the cursor.
+// ?sign=B freezes the hand in that letter's finger-spelling sign (?at=0..1 also holds its motion at that fraction), ?gaze=0 keeps the eyes from following the cursor,
+// ?guard=0 turns the body collision off, ?colliders=1 draws its shape.
 const params = new URLSearchParams(location.search);
 
 // Default view: front-on, head to waist, so the face and the signing hand are both visible.
@@ -106,20 +116,37 @@ loader.load(
     mouth = createMouth(gltf.scene, { morphs });
     if (params.get('gaze') !== '0') gaze = createGaze(gltf.scene, { camera });
     if (params.has('viseme')) mouth?.snapViseme(params.get('viseme'));
-    hands = createHands(gltf.scene, 'R');
-    handsL = createHands(gltf.scene, 'L');
+    limits = createLimits(gltf.scene);
+    body = createBody(gltf.scene);
+    twist = createTwist(gltf.scene);
+    if (body && params.has('colliders')) body.outline();
+    if (import.meta.env.DEV) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
+    hands = createHands(gltf.scene, 'R', { body });
+    handsL = createHands(gltf.scene, 'L', { body });
     // the fine-tuning panel (and its save button) only exists on the dev server, not in the production build
     if (import.meta.env.DEV) {
       boneEditor = createBoneEditor({
-        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
+        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS), twistAngles: () => twist?.angles() ?? [0, 0],
         onLetter: say,
         onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
+        onOpenSignEditor: () => signEditor?.open(hands?.key && hands.key !== STANDBY ? hands.key : undefined),
+      });
+      signEditor = createSignEditor({
+        show: (k) => [hands, handsL].forEach((h) => h?.snapSign(k)),
+        play: say,
+        freeze: (r) => [hands, handsL].forEach((h) => h?.freezeMotion(r)),
+        select: press,
+        info: () => {
+          const [r, l] = twist?.angles() ?? [0, 0];
+          return `Randme väänd: parem ${r}°, vasak ${l}°${Math.abs(r) > 100 || Math.abs(l) > 100 ? '  ⚠ käsivars võib näida keerdus' : ''}`;
+        },
       });
     }
     // start in the standby pose (or the ?sign= letter) instead of rising from a hanging arm
     hands?.snapSign(params.get('sign'));
     handsL?.snapSign(params.get('sign'));
-    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
+    if (params.has('at')) [hands, handsL].forEach((h) => h?.freezeMotion(+params.get('at'))); // ?sign=TERE&at=0.5: hold the motion half way
+    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, body, twist, signEditor, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
     window.__modelReady = true;
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
@@ -172,11 +199,14 @@ renderer.setAnimationLoop(() => {
   handsL?.update(frozenSign ? 0 : dt);
   mouth?.update(params.has('viseme') ? 0 : dt);
   tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
+  limits?.apply(); // fingers can't bend the wrong way (after the tweaks, which may push them there)
   for (const h of [hands, handsL]) {
     if (!h) continue;
     h.motionPaused = frozenSign || (boneEditor?.active ?? false); // tuning a sign needs it to hold still
     h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
+    if (params.get('guard') !== '0') h.avoidBody(); // and last, arms and hands are kept out of the body
   }
+  twist?.apply(); // the arms have their final pose: the forearm's twist bones follow the hand
   gaze?.update(dt);
   morphs?.flush();
   boneEditor?.update();
@@ -193,6 +223,9 @@ const panel = createLetterPanel(Object.keys(LETTERS), {
 
 // Text box: the typed letters are signed one after another.
 createTextPanel(Object.keys(LETTERS), {
+  words: WORD_FORMS,
+  // a word sign that moves is held until its motion has played
+  holdMs: (sign) => (SIGNS[sign]?.motion ? (MOTION_LEAD + SIGNS[sign].motion.duration) * 1000 + 250 : 450),
   onPress: press,
   onRelease: release,
   onFinish: () => say(null), // the word is done (or stopped): hands back to standby
@@ -213,6 +246,7 @@ function say(letter) {
 function press(letter) {
   say(letter);
   boneEditor?.setLetter(letter);
+  signEditor?.setSign(letter);
 }
 // After release the hands stay in the last sign (the panel keeps it highlighted); only the mouth returns to rest.
 // Escape sends the hands back to standby.

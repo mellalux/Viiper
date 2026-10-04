@@ -1,7 +1,9 @@
 import { makeDraggable } from './draggable.js';
 
 // Floating, draggable box with a text field. Every letter typed becomes a chip in the list below (the signs still to be
-// shown); the arrow button signs them one after another. Drag it by the title bar; the position is remembered.
+// shown), except a whole word (or phrase, such as "head aega") that has a word sign of its own, which becomes one chip; the arrow button signs them one
+// after another. Typing the start of a word or phrase that has a sign opens a suggestion list (arrow keys + Enter / Tab, or a click,
+// complete it; accents don't matter: "aitah" finds AITÄH). Drag it by the title bar; the position is remembered.
 const STORAGE_KEY = 'viiper.textPanel';
 const HOLD_MS = 450; // how long each letter is held
 const GAP_MS = 150; // pause between letters (the mouth returns to rest)
@@ -22,7 +24,17 @@ const css = `
 .text-panel.is-dragging .text-panel__bar { cursor: grabbing; }
 .text-panel__title { font-weight: 600; letter-spacing: 0.02em; }
 .text-panel__grip { color: #888; letter-spacing: 2px; }
-.text-panel__form { display: flex; gap: 6px; padding: 10px 12px 0; }
+.text-panel__form { position: relative; display: flex; gap: 6px; padding: 10px 12px 0; }
+.text-panel__menu {
+  position: absolute; z-index: 2; left: 12px; right: 54px; top: calc(100% + 2px); margin: 0; padding: 4px; list-style: none; border-radius: 8px;
+  background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+}
+.text-panel__menu[hidden] { display: none; }
+.text-panel__option { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+.text-panel__option:hover { background: #2c2c33; }
+.text-panel__option--active, .text-panel__option--active:hover { background: #2f9e6e; color: #fff; }
+.text-panel__alias { color: #8a8a95; font-size: 12px; }
+.text-panel__option--active .text-panel__alias { color: #d8f5e8; }
 .text-panel__input {
   flex: 1; min-width: 0; height: 36px; box-sizing: border-box; padding: 0 10px; border-radius: 8px; user-select: text;
   font: inherit; font-size: 14px; color: #e8e8ec; background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.14);
@@ -50,7 +62,7 @@ const css = `
 .text-panel__chip--current { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
 `;
 
-export function createTextPanel(letters, { onPress, onRelease, onRepeat, onFinish }) {
+export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, onPress, onRelease, onRepeat, onFinish }) {
   const style = document.createElement('style');
   style.textContent = css;
   document.head.appendChild(style);
@@ -65,13 +77,17 @@ export function createTextPanel(letters, { onPress, onRelease, onRepeat, onFinis
     <form class="text-panel__form">
       <input class="text-panel__input" type="text" placeholder="Kirjuta tekst…" autocomplete="off" spellcheck="false">
       <button class="text-panel__send" type="submit" title="Näita viipeid">➤</button>
+      <ul class="text-panel__menu" role="listbox" hidden></ul>
     </form>
     <div class="text-panel__list"></div>`;
   const form = panel.querySelector('.text-panel__form');
   const input = panel.querySelector('.text-panel__input');
   const send = panel.querySelector('.text-panel__send');
   const list = panel.querySelector('.text-panel__list');
+  const menu = panel.querySelector('.text-panel__menu');
   const known = new Set(letters);
+  // words: typed form (upper case, may hold spaces) -> the sign it shows; longest forms are tried first
+  const forms = Object.keys(words).sort((a, b) => b.length - a.length);
 
   // typing here must not trigger the letter shortcuts on window
   panel.addEventListener('keydown', (e) => e.stopPropagation());
@@ -100,14 +116,108 @@ export function createTextPanel(letters, { onPress, onRelease, onRepeat, onFinis
     send.disabled = !items.some((ch) => ch !== ' ');
   }
 
-  input.addEventListener('input', () => {
-    items = [...input.value.toUpperCase()].filter((ch) => ch === ' ' || known.has(ch));
+  function update() {
+    // a word (or phrase) that has its own sign is one item, anything else is signed letter by letter
+    const text = input.value.toUpperCase();
+    items = [];
+    for (let i = 0; i < text.length; ) {
+      const form = forms.find((f) => (i === 0 || text[i - 1] === ' ') && text.startsWith(f, i) && (i + f.length === text.length || text[i + f.length] === ' '));
+      if (form) {
+        items.push(form);
+        i += form.length;
+      } else {
+        if (text[i] === ' ' || known.has(text[i])) items.push(text[i]);
+        i++;
+      }
+    }
     render();
+    refreshMenu();
+  }
+  input.addEventListener('input', update);
+
+  // --- suggestions: the typed text's last word (or phrase start) against the words that have a sign ---
+  // compare without accents and case, one character for one, so positions in the typed text stay valid
+  const fold = (t) => [...t].map((c) => c.normalize('NFD')[0].toUpperCase()).join('');
+  const folded = new Map(Object.keys(words).sort().map((f) => [f, fold(f)]));
+  let options = []; // [{ form, label }] currently listed
+  let matchStart = 0; // where in the input the text that a pick replaces begins
+  let active = -1; // highlighted option, -1 = none
+
+  function refreshMenu() {
+    options = [];
+    active = -1;
+    if (!playing && document.activeElement === input) {
+      const typed = fold(input.value);
+      // the longest tail that starts a word and is the beginning of a longer word / phrase
+      for (let i = 0; i < typed.length && !options.length; i++) {
+        if (i > 0 && input.value[i - 1] !== ' ') continue;
+        const tail = typed.slice(i);
+        if (!tail.trim()) break;
+        options = [...folded].filter(([, f]) => f.startsWith(tail) && f !== tail).slice(0, 6).map(([form]) => ({ form, label: words[form] }));
+        matchStart = i;
+      }
+    }
+    menu.replaceChildren(
+      ...options.map((o, i) => {
+        const li = document.createElement('li');
+        li.className = 'text-panel__option';
+        li.setAttribute('role', 'option');
+        li.append(o.form);
+        if (o.label !== o.form) {
+          const alias = document.createElement('span');
+          alias.className = 'text-panel__alias';
+          alias.textContent = '→ ' + o.label;
+          li.append(alias);
+        }
+        // mousedown, not click, and no default: the input must keep focus
+        li.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          pick(i);
+        });
+        return li;
+      }),
+    );
+    menu.hidden = !options.length;
+  }
+
+  function highlight(i) {
+    active = i;
+    [...menu.children].forEach((li, n) => li.classList.toggle('text-panel__option--active', n === i));
+  }
+
+  function pick(i) {
+    if (!options[i]) return;
+    input.value = input.value.slice(0, matchStart) + options[i].form + ' ';
+    input.focus();
+    update();
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (menu.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlight(e.key === 'ArrowDown' ? (active + 1) % options.length : active < 0 ? options.length - 1 : (active - 1 + options.length) % options.length);
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault(); // takes the suggestion instead of showing the signs
+      pick(active);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      pick(Math.max(active, 0));
+    } else if (e.key === 'Escape') {
+      options = [];
+      menu.hidden = true;
+    }
+  });
+  input.addEventListener('focus', refreshMenu);
+  input.addEventListener('blur', () => {
+    options = [];
+    menu.hidden = true;
   });
 
   function setPlaying(on) {
     playing = on;
     input.disabled = on;
+    if (on) refreshMenu();
     send.classList.toggle('text-panel__send--stop', on);
     send.textContent = on ? '■' : '➤';
     send.title = on ? 'Peata' : 'Näita viipeid';
@@ -141,13 +251,14 @@ export function createTextPanel(letters, { onPress, onRelease, onRepeat, onFinis
       }
       chip.classList.add('text-panel__chip--current');
       chip.scrollIntoView({ block: 'nearest' });
-      onPress(ch);
+      const sign = words[ch] ?? ch;
+      onPress(sign);
       const repeated = items.slice(i).find((c) => c !== ' ') === ch; // the next sign is the same letter
       timer = setTimeout(() => {
-        onRelease(ch);
-        if (repeated) onRepeat?.(ch);
+        onRelease(sign);
+        if (repeated) onRepeat?.(sign);
         timer = setTimeout(step, repeated ? REPEAT_GAP_MS : GAP_MS);
-      }, HOLD_MS);
+      }, holdMs(sign));
     };
     step();
   }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import fingerspelling from '../data/fingerspelling.json';
-import { STANDBY } from './hands.js';
+import words from '../data/words.json';
+import { STANDBY, SIGNS } from './hands.js';
 import { detectRig } from '../character/rigs.js';
 
 // Hand-tuned offsets for any bone, layered on top of whatever poses it (hands.js, mouth.js) or its rest pose.
@@ -8,7 +9,7 @@ import { detectRig } from '../character/rigs.js';
 // model's world axes: +X = the character's left, +Y up, +Z forward, as in mouth.js, converted with the parent's
 // rest orientation, so the bones' odd roll orientations don't matter).
 //
-// Data lives in fingerspelling.json: `signs.<letter>.tweaks.<bone>` is applied while that sign is shown (face and the signing
+// Data lives in fingerspelling.json (letters) and words.json (word signs): `signs.<letter>.tweaks.<bone>` is applied while that sign is shown (face and the signing
 // arm); `global.<bone>` always applies (body). The other arm only ever waits in standby, so its tweaks sit under
 // the standby sign. Format of one entry: { "rot": [x, y, z], "pos": [x, y, z] }, either part optional.
 // Shape keys (face morph targets) work the same way: `{ "w": 0.3 }` adds that weight to the shape while the sign is shown.
@@ -41,7 +42,7 @@ function clean(e) {
 /** Tweaks as stored in fingerspelling.json. */
 export function tweaksFromSigns() {
   const keys = {};
-  for (const [letter, sign] of Object.entries(fingerspelling.signs)) if (sign.tweaks) keys[letter] = sign.tweaks;
+  for (const [letter, sign] of Object.entries({ ...fingerspelling.signs, ...words.signs })) if (sign.tweaks) keys[letter] = sign.tweaks;
   return { global: fingerspelling.global ?? {}, keys };
 }
 
@@ -106,7 +107,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
   const bucket = (key, create = false) => (key === GLOBAL ? data.global : create ? (data.keys[key] ??= {}) : data.keys[key]);
   /** Which key a bone's tweak is stored under, given the sign being edited/shown. */
   // (the left arm waits in standby, except in two-handed letters, which give it a pose of its own)
-  const keyOf = (e, letter) => (e.group === 'body' ? GLOBAL : e.group === 'left' ? (fingerspelling.signs[letter]?.left ? letter : STANDBY) : letter);
+  const keyOf = (e, letter) => (e.group === 'body' ? GLOBAL : e.group === 'left' ? (SIGNS[letter]?.left ? letter : STANDBY) : letter);
 
   const recompute = (snapIndex = -1) => {
     for (const e of items) {

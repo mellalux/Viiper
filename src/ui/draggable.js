@@ -2,11 +2,12 @@
 // collapses the panel to just the bar (remembered too); the bar must be the panel's first child.
 // `defaultPosition` is called once (after the panel is in the DOM) when nothing is saved yet.
 const css = `
-.panel-collapse {
-  width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
-  color: #aaa; background: none; border: 1px solid transparent;
+/* the doubled class outranks the panels' own button styles */
+button.panel-collapse.panel-collapse {
+  flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  font: inherit; font-size: 12px; line-height: 1; color: #aaa; background: none; border: 1px solid transparent;
 }
-.panel-collapse:hover { color: #e8e8ec; background: rgba(255, 255, 255, 0.08); }
+button.panel-collapse.panel-collapse:hover:not(:disabled) { color: #e8e8ec; background: rgba(255, 255, 255, 0.08); }
 .panel-collapse::before { content: '▾'; display: block; }
 .is-collapsed .panel-collapse::before { content: '▸'; }
 .is-collapsed > :not(:first-child) { display: none !important; }
@@ -50,7 +51,7 @@ export function makeDraggable(panel, bar, storageKey, defaultPosition) {
   const setCollapsed = (on) => {
     panel.classList.toggle('is-collapsed', on);
     toggle.title = on ? 'Ava' : 'Peida';
-    place(panel.offsetLeft, panel.offsetTop); // opening may push the panel past the screen edge
+    if (panel.getClientRects().length) place(panel.offsetLeft, panel.offsetTop); // opening may push the panel past the screen edge (a hidden panel has no position to keep)
   };
   let collapsed = false;
   try {
@@ -85,5 +86,6 @@ export function makeDraggable(panel, bar, storageKey, defaultPosition) {
   };
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
-  window.addEventListener('resize', () => place(panel.offsetLeft, panel.offsetTop));
+  // (a panel that is not shown has no position to keep: its offsets read 0)
+  window.addEventListener('resize', () => panel.getClientRects().length && place(panel.offsetLeft, panel.offsetTop));
 }

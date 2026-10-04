@@ -54,6 +54,9 @@ export const RIGS = {
     spreadAxis: 0,
     spreadSign: -1,
     thumbPoses: shared.rigs?.cc?.thumbPoses ?? shared.thumbPoses,
+    body: shared.rigs?.cc?.body, // collision shape for body.js (a rig without one has no collision)
+    // forearm twist bones for twist.js: their names and the share of the hand's twist each one takes (shared.json)
+    twist: shared.rigs?.cc?.twist && { name: (s, n) => `CC_Base_${s}_${n}`, bones: shared.rigs.cc.twist },
     armSide: (n) => ARM_PART.cc.exec(n)?.[1] ?? null,
     rotDriven: (n) => ARM_PART.cc.test(n) || n === 'CC_Base_JawRoot',
     posDriven: () => false,

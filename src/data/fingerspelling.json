@@ -31,7 +31,7 @@
       }
     },
     "A": {
-      "left": {},
+      "orient": { "pole": [-0.25, -1, -0.35], "maxBend": 80, "reach": [-0.04, 0.22, 0.5] }, "left": {},
       "tweaks": {
         "CC_Base_R_Upperarm": { "rot": [54.9, 12.8, 29] },
         "CC_Base_R_Forearm": { "rot": [74.8, -12, -15] },
