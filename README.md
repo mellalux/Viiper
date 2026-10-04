@@ -57,7 +57,7 @@ The *Peenhäälestus* panel lets you adjust the rotation and position of any bon
 2. Adjust it with the sliders. Tweaks apply per letter for the face and the signing arm. They apply to the standby pose for the other arm, and always for the body.
 3. Optionally mirror the edit to the opposite side, or copy the tweaks from another letter.
 
-Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili (signs.json)**. This writes them into [src/data/signs.json](src/data/signs.json) and works **only on the dev server**.
+Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili (fingerspelling.json)**. This writes them into [src/data/fingerspelling.json](src/data/fingerspelling.json) and works **only on the dev server**.
 
 ### Save PIN
 
@@ -65,7 +65,7 @@ Writing is guarded by a PIN, which the dev server checks (see [vite.config.js](v
 
 - On first start the server creates `.save-pin` (git-ignored) with a random 4-digit PIN and prints it in the terminal. Edit the file to change the PIN. Changes take effect immediately.
 - Five wrong PINs in a row lock saving for one minute.
-- Saving rewrites `signs.json` in a diff-friendly layout and keeps the file's line endings.
+- Saving rewrites `fingerspelling.json` in a diff-friendly layout and keeps the file's line endings.
 
 ## Project layout
 
@@ -77,8 +77,9 @@ src/
   main.js               scene, model loading, render loop, keyboard input
   assets/models/        .glb character models (bundled by Vite)
   data/
-    signs.json          all sign data: hand orientations, thumb poses, signs,
-                        visemes, letter → viseme table, per-rig data, saved tweaks
+    shared.json         data shared by all kinds of signs: hand orientations,
+                        thumb poses, visemes, letter → viseme table, per-rig data
+    fingerspelling.json the letters (curls, directions, motion) and saved tweaks
   character/            the model's face and eyes
     rigs.js             skeleton profiles (Rigify, Character Creator)
     morphs.js           shared shape-key layer (mouth, blink and tweaks add up)
@@ -97,12 +98,18 @@ src/
 
 ### How a sign is described
 
-`src/data/signs.json` is the source of truth and can be edited by hand.
+`src/data/shared.json` and `src/data/fingerspelling.json` are the source of truth and can be edited by hand.
+
+In `shared.json`:
 
 - `orient`: where the hand is held and which way it points (world directions and a wrist target relative to the shoulder).
 - `thumbPoses`: thumb joint rotations.
-- `signs`: per letter, finger `curl` (0 straight to 1 fully curled), optional `spread` and `knuckle`, an `orient` (`dir`), a thumb pose, and optional `tweaks` from the bone editor.
 - `visemes` and `letters`: mouth shapes and which letter uses which.
+- `rigs`: per-rig overrides (thumb poses, visemes).
+
+In `fingerspelling.json`:
+
+- `signs`: per letter, finger `curl` (0 straight to 1 fully curled), optional `spread` and `knuckle`, an `orient` (`dir`), a thumb pose, and optional `tweaks` from the bone editor.
 - `global`: tweaks that always apply (body).
 
 Details are in the header comments of [src/signing/hands.js](src/signing/hands.js), [src/character/mouth.js](src/character/mouth.js) and [src/signing/tweaks.js](src/signing/tweaks.js).

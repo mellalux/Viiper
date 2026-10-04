@@ -9,7 +9,7 @@ import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 // Fine-tuning panel for every bone (arms and fingers, face and lips, body): tick "Muuda märki" to hold a sign,
 // pick a group and a bone (from the list or by clicking its marker), then dial rotation and position with the sliders.
 // Edits apply per sign (face, signing arm), only to the standby pose (the other arm) or always (body) - see tweaks.js.
-// src/data/signs.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
+// src/data/fingerspelling.json holds the committed tweaks; edits live in localStorage as a working copy until "Salvesta faili"
 // writes them back into that file (dev server only).
 const STORAGE_KEY = 'viiper.tweaks';
 const LEGACY_KEY = 'viiper.fingerTweaks'; // the first version's storage; no longer read, just removed
@@ -26,7 +26,7 @@ function askPin() {
     overlay.innerHTML = `
       <form class="pin-dialog__box">
         <div class="pin-dialog__title">Salvesta faili</div>
-        <div>Sisesta PIN, et muudatused signs.json-i kirjutada.</div>
+        <div>Sisesta PIN, et muudatused fingerspelling.json-i kirjutada.</div>
         <input type="password" inputmode="numeric" autocomplete="off" aria-label="PIN" />
         <div class="pin-dialog__buttons">
           <button type="button" data-role="cancel">Tühista</button>
@@ -130,7 +130,7 @@ const fingerprint = (text) => {
 };
 
 export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters, onLetter, onStandby }) {
-  let fileState = canon(tweaks.export()); // what src/data/signs.json holds
+  let fileState = canon(tweaks.export()); // what src/data/fingerspelling.json holds
   const readLS = (k) => {
     try {
       return JSON.parse(localStorage.getItem(k));
@@ -139,12 +139,12 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     }
   };
   let base = fingerprint(fileState);
-  // The working copy remembers which file state it was made against. When signs.json has changed since (a reset, a
+  // The working copy remembers which file state it was made against. When fingerspelling.json has changed since (a reset, a
   // git pull, a hand edit) it is stale and dropped, so old tweaks can't come back from the browser.
   const working = readLS(STORAGE_KEY);
   if (working) {
     if (working.base === base && working.data) tweaks.load(working.data);
-    else console.info('Dropped a stale working copy of the tweaks (signs.json has changed since it was made).');
+    else console.info('Dropped a stale working copy of the tweaks (fingerspelling.json has changed since it was made).');
   }
   try {
     if (working?.base !== base) localStorage.removeItem(STORAGE_KEY);
@@ -215,8 +215,8 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
         <button data-role="copy">Kopeeri</button>
       </div>
       <div class="bone-editor__buttons">
-        <button data-role="save-file">Salvesta faili (signs.json)</button>
-        <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb signs.json-i seaded">Lae failist</button>
+        <button data-role="save-file">Salvesta faili (fingerspelling.json)</button>
+        <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb fingerspelling.json-i seaded">Lae failist</button>
       </div>
     </div>`;
   document.body.appendChild(panel);
@@ -474,9 +474,9 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     }
     setTimeout(() => (btn.textContent = 'Kopeeri'), 1500);
   });
-  // drop the browser's working copy and show what signs.json holds (one step of undo, like a copy)
+  // drop the browser's working copy and show what fingerspelling.json holds (one step of undo, like a copy)
   $('load-file').addEventListener('click', () => {
-    if (canon(tweaks.export()) !== fileState && !confirm('Kustutan brauseri töökoopia ja laen signs.json-i seaded? Salvestamata muudatused lähevad kaduma.')) return;
+    if (canon(tweaks.export()) !== fileState && !confirm('Kustutan brauseri töökoopia ja laen fingerspelling.json-i seaded? Salvestamata muudatused lähevad kaduma.')) return;
     undoSnapshot = tweaks.export();
     try {
       localStorage.removeItem(STORAGE_KEY);
@@ -484,7 +484,7 @@ export function createBoneEditor({ scene, camera, controls, dom, tweaks, letters
     tweaks.load(tweaksFromSigns());
     undoBtn.disabled = false;
     refresh();
-    copyNote.textContent = 'Laetud signs.json-ist, töökoopia kustutatud.';
+    copyNote.textContent = 'Laetud fingerspelling.json-ist, töökoopia kustutatud.';
   });
   $('save-file').addEventListener('click', async (e) => {
     const btn = e.currentTarget;

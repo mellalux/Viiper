@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import signData from '../data/signs.json';
+import shared from '../data/shared.json';
 import { detectRig } from './rigs.js';
 
 // Mouth shapes (visemes) driven by Rigify face bones. Offsets are given in model world axes
@@ -9,16 +9,16 @@ import { detectRig } from './rigs.js';
 // (GLTFLoader strips dots from node names: lipTL001, lipBR, jaw, teethB, ...)
 export const MOUTH_PARAMS = ['jaw', 'cornerIn', 'cornerUp', 'cornerForward', 'lowerDown', 'upperUp', 'lipForward'];
 
-// The mouth shapes and the letter -> shape table live in signs.json (the base source for the finger-spelling data):
+// The mouth shapes and the letter -> shape table live in shared.json (data shared by the finger-spelling and the word signs):
 //   visemes  per shape, any of MOUTH_PARAMS (missing = 0); `note` is ignored. Offsets are model-space lengths, jaw in radians.
 //   letters  letter -> viseme. The order here is the order of the buttons in the letter panel.
-export const VISEMES = signData.visemes;
-export const LETTERS = signData.letters;
+export const VISEMES = shared.visemes;
+export const LETTERS = shared.letters;
 
 // Rigs whose face is made of shape keys (Character Creator) have no lip bones: their mouth shapes are weights of shape
-// keys instead, in signs.json `rigs.cc.visemes` ({ "morphs": { shapeKey: weight }, "jaw": degrees of jaw-bone opening }).
+// keys instead, in shared.json `rigs.cc.visemes` ({ "morphs": { shapeKey: weight }, "jaw": degrees of jaw-bone opening }).
 function createMorphMouth(root, morphs, smoothing) {
-  const visemes = signData.rigs.cc.visemes;
+  const visemes = shared.rigs.cc.visemes;
   const jawBone = root.getObjectByName('CC_Base_JawRoot'); // carries the teeth and tongue; opens about its local Z
   const jawRest = jawBone?.quaternion.clone();
   const names = [...new Set(Object.values(visemes).flatMap((v) => Object.keys(v.morphs ?? {})))];

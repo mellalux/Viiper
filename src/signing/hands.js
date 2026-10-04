@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import signData from '../data/signs.json';
+import shared from '../data/shared.json';
+import fingerspelling from '../data/fingerspelling.json';
 import { detectRig } from '../character/rigs.js';
 
 // Estonian finger-spelling (sõrmendid) on the model's right hand.
@@ -9,19 +10,20 @@ import { detectRig } from '../character/rigs.js';
 // spread about their local Z (positive = towards the pinky).
 // (GLTFLoader strips dots from node names: upper_armR, f_index01R, thumb02R, ...)
 
-// All sign data lives in signs.json (hand-edited, the base source for the finger-spelling; the `visemes` and
-// `letters` sections are the mouth shapes, read by mouth.js):
+// Sign data is hand-edited JSON. shared.json holds what finger-spelling and word signs have in common (the `visemes`,
+// `letters` and `rigs` sections are the mouth shapes and per-rig data, read by mouth.js and rigs.js):
 //   orient     where the hand is held and which way it points. `finger`/`thumb` are world directions
 //              (model faces +Z, +X is the viewer's right), `reach` the wrist target relative to the shoulder in
 //              units of the arm's full length, optional `pole` (elbow hint) and `maxBend` (wrist limit, degrees).
 //              Right hand, palm towards the viewer; the left hand is mirrored.
 //   thumbPoses thumb joint rotations (Euler XYZ per joint: thumb.01, .02, .03), radians.
+// fingerspelling.json holds the letters:
 //   signs      per letter: curl = [index, middle, ring, pinky], 0 straight .. 1 fully curled; dir = an orient;
 //              thumb = a thumb pose; spread = same finger order (radians, optional); knuckle = extra bend (radians)
 //              of the finger at the base joint only, keeping the finger straight (optional).
-// Fine-tuning made with the bone editor (rotation and position of any bone, see tweaks.js) is stored in the same file:
+// Fine-tuning made with the bone editor (rotation and position of any bone, see tweaks.js) is stored in fingerspelling.json:
 //   signs.<letter>.tweaks and global.
-export const ORIENT = signData.orient;
+export const ORIENT = shared.orient;
 
 // Elbow/solver settings. Wrist targets (relative to the shoulder, in units of the arm's full length) are per orientation above.
 export const HAND_CONFIG = {
@@ -31,14 +33,14 @@ export const HAND_CONFIG = {
   smoothing: 14,
 };
 
-export const THUMB_POSES = Object.fromEntries(Object.entries(signData.thumbPoses).map(([k, p]) => [k, p.joints]));
+export const THUMB_POSES = Object.fromEntries(Object.entries(shared.thumbPoses).map(([k, p]) => [k, p.joints]));
 
 // Pseudo-letter for the standby pose: shown between signs (instead of lowering the arm) and tunable like a letter.
 export const STANDBY = 'ootel';
 const STANDBY_DIR = { R: 'ready', L: 'relaxed' }; // which orient each hand waits in
 
 export const SIGNS = Object.fromEntries(
-  Object.entries(signData.signs).map(([letter, sign]) => [letter, { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], ...sign }]),
+  Object.entries(fingerspelling.signs).map(([letter, sign]) => [letter, { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], ...sign }]),
 );
 
 // What a sign's `left` part (the other hand's share in two-handed letters such as Q and X) leaves out
@@ -46,7 +48,7 @@ const LEFT_DEFAULTS = { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], thumb: 'res
 
 const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
 
-// A sign can move the hand while it is shown (Z draws its letter in the air): `motion` = { path, duration } in signs.json.
+// A sign can move the hand while it is shown (Z draws its letter in the air): `motion` = { path, duration } in fingerspelling.json.
 // path = wrist offsets [x, y] from the tuned pose, in units of the arm's full length (+x = the viewer's right, +y up);
 // the first point is the pose as tuned, so it should be [0, 0]. The hand takes the path once, slowing at the corners.
 const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path

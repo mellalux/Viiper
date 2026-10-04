@@ -1,4 +1,4 @@
-import signData from '../data/signs.json';
+import shared from '../data/shared.json';
 
 // Skeleton profiles: where each rig keeps the bones the app drives, and how its finger bones are oriented.
 // A profile is picked from the loaded model (detectRig); everything else (hands.js, tweaks.js, ...) asks the profile
@@ -27,7 +27,7 @@ export const RIGS = {
     curlAxis: 0,
     spreadAxis: 2,
     spreadSign: 1,
-    thumbPoses: signData.thumbPoses,
+    thumbPoses: shared.thumbPoses,
     // tweaks.js: which side an arm/hand/finger bone belongs to (null = not part of an arm), what other systems
     // re-pose every frame, the face's root bone, and a bone's mirror twin
     armSide: (n) => ARM_PART.rigify.exec(n)?.[2] ?? null,
@@ -53,7 +53,7 @@ export const RIGS = {
     curlAxis: 2,
     spreadAxis: 0,
     spreadSign: -1,
-    thumbPoses: signData.rigs?.cc?.thumbPoses ?? signData.thumbPoses,
+    thumbPoses: shared.rigs?.cc?.thumbPoses ?? shared.thumbPoses,
     armSide: (n) => ARM_PART.cc.exec(n)?.[1] ?? null,
     rotDriven: (n) => ARM_PART.cc.test(n) || n === 'CC_Base_JawRoot',
     posDriven: () => false,

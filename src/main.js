@@ -73,7 +73,7 @@ let mouth = null;
 let hands = null; // the signing (right) hand
 let handsL = null; // the other hand: only ever in its standby pose
 let morphs = null; // the model's shape keys (face morph targets), summed over their drivers
-let tweaks = null; // hand-tuned bone offsets (rotation + position) from signs.json
+let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
 let boneEditor = null;
 let gaze = null; // turns the eyes towards the mouse cursor
 

@@ -2,10 +2,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/data/signs.json.
+// Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/data/fingerspelling.json.
 // Writing needs the PIN kept in .save-pin (git-ignored; edit the file to change it). The server checks it, not the page.
 const SAVE_URL = '/__save-sign-tweaks';
-const SIGNS_FILE = 'src/data/signs.json';
+const SIGNS_FILE = 'src/data/fingerspelling.json';
 const PIN_FILE = '.save-pin';
 const MAX_WRONG_PINS = 5; // this many wrong PINs in a row lock saving for a minute
 const LOCK_MS = 60_000;
@@ -30,10 +30,8 @@ const sign = (s, depth) => {
   // (an undefined sign has no base fields, only tweaks)
   return `{\n${fields ? `${pad(depth + 1)}${fields},\n` : ''}${pad(depth + 1)}"tweaks": ${block(tweaks, depth + 1, inline)}\n${pad(depth)}}`;
 };
-// rigs: { cc: { thumbPoses: { across: {...} }, visemes: { A: {...} } } } - one pose / viseme per line
-const rigs = (v, depth) => block(v, depth, (rig, d) => block(rig, d, (section, d2) => block(section, d2, inline)));
 export const serialize = (data) =>
-  `${block(data, 0, (v, depth, key) => (key === 'signs' ? block(v, depth, sign) : key === 'rigs' ? rigs(v, depth) : block(v, depth, inline)))}\n`;
+  `${block(data, 0, (v, depth, key) => (key === 'signs' ? block(v, depth, sign) : block(v, depth, inline)))}\n`;
 
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
