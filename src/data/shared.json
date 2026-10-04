@@ -16,7 +16,22 @@
     "fist": { "note": "fist raised in front of the shoulder, palm towards the midline, thumb side to the body (Jah)", "finger": [0.2, 1, 0.4], "thumb": [0, 0, -1], "reach": [0.05, 0.05, 0.4], "pole": [-1, -0.6, 0.2] },
     "thumbsUp": { "note": "fist with the thumb up in front of the upper chest, elbow out; the fist continues the forearm (Hea, Hästi)", "finger": [0.7, 0.55, 0.4], "thumb": [0, 1, 0], "reach": [0.15, -0.1, 0.4], "pole": [-1, -0.6, 0.2] },
     "no": { "note": "open hand, palm out, fingers up, a little left of the midline (Ei); the elbow stays out to the side so the forearm clears the body", "finger": [0, 1, 0], "thumb": [1, 0, 0], "reach": [0.35, -0.1, 0.5], "pole": [-1, 0, 0.4] },
-    "meet": { "note": "two-handed Q: both hands near the midline, fingers up and inward", "finger": [0.5, 1, 0], "thumb": [1, -0.5, 0], "reach": [0.1, -0.02, 0.5] }
+    "meet": { "note": "two-handed Q: both hands near the midline, fingers up and inward", "finger": [0.5, 1, 0], "thumb": [1, -0.5, 0], "reach": [0.1, -0.02, 0.5] },
+    "pointSelf": { "note": "index finger to the signer's own chest, thumb up, elbow out (Mina)", "finger": [0.6, -0.1, -0.8], "thumb": [0, 1, 0], "reach": [0.12, -0.15, 0.45], "pole": [-1, -0.6, 0.2] },
+    "pointFwd": { "note": "index finger forward, at the person facing the signer, thumb up (Sina, Nemad)", "finger": [0, 0.05, 1], "thumb": [0, 1, 0], "reach": [-0.1, 0.05, 0.8], "pole": [-0.4, -1, -0.1] },
+    "cup": { "note": "four fingers together, bent at the knuckles (set per sign), palm up and a little towards the signer, between chest and shoulder height (Tema, Teie viisakusvorm)", "finger": [0.2, 0.4, 1], "thumb": [-1, 0, 0], "reach": [-0.05, 0, 0.5], "pole": [-0.5, -1, 0] },
+    "gather": { "note": "palm down, fingers together bent down at the knuckles (set per sign), in front of the chest on the signer's right (Meie)", "finger": [0.3, -0.3, 1], "thumb": [1, 0, 0], "reach": [-0.35, -0.05, 0.6], "pole": [-0.5, -1, 0], "maxBend": 60 },
+    "offer": { "note": "open hand, palm up, fingers forward, held out on the signer's left towards the people addressed (Teie)", "finger": [0, 0.1, 1], "thumb": [-1, 0, 0], "reach": [0.4, -0.05, 0.7], "pole": [-0.4, -1, 0] },
+    "sweep": { "note": "hand palm down, fingers forward and a little down, out in front on the signer's left (Kõik)", "finger": [0, -0.2, 1], "thumb": [1, 0, 0], "reach": [0.4, -0.1, 0.65], "pole": [-0.4, -1, 0] },
+    "fistFlat": { "note": "fist palm down in front of the upper chest, thumb out to the signer's left (Ise)", "finger": [0.4, 0.1, 1], "thumb": [1, 0, 0], "reach": [0.15, -0.05, 0.5], "pole": [-1, -0.5, 0.2] },
+    "palmSelf": { "note": "upper chest, fingers up, palm to the signer (Millal, Kui palju, Kuidas)", "finger": [0, 1, 0], "thumb": [-1, 0, 0], "reach": [0.1, -0.05, 0.45], "pole": [-0.8, -1, 0] },
+    "temple": { "note": "beside the right temple, fingers up, palm to the head (Ema, Vanaema)", "finger": [0, 1, 0], "thumb": [0, 0, -1], "reach": [0.08, 0.2, 0.2], "pole": [-1, -0.6, 0.2] },
+    "mouth": { "note": "index finger horizontal in front of the mouth, tip to the signer's left, palm to the body (Isa, Vanaisa)", "finger": [1, 0, 0], "thumb": [0, 1, 0], "reach": [0.03, 0.12, 0.3], "pole": [-0.8, -1, 0] },
+    "across": { "note": "in front of the chest, fingers across to the left, palm to the body (Tütar)", "finger": [1, 0, 0], "thumb": [0, 1, 0], "reach": [0.04, -0.1, 0.45], "pole": [-0.5, -1, 0.1] },
+    "stack": { "note": "in front of the chest, palm down, fingers forward and a little towards the midline: the two index fingers lie one on the other (Vend, Õde; the left hand a little higher)", "finger": [0.5, 0, 1], "thumb": [1, 0, 0], "reach": [0.12, -0.12, 0.5], "pole": [-0.8, -1, 0.1] },
+    "flatFwd": { "note": "in front of the chest, palm down, fingers forward (Laps, Sõber)", "finger": [0, 0, 1], "thumb": [1, 0, 0], "reach": [0.1, -0.1, 0.55], "pole": [-0.8, -1, 0] },
+    "pointDown": { "note": "index finger down, palm to the body, in front of the chest; the wrist bends more than usual (Teadma, Kordama)", "finger": [0.3, -1, 0.2], "thumb": [1, 0, 0], "reach": [0.1, -0.15, 0.45], "pole": [-0.8, -0.6, 0.2], "maxBend": 95 },
+    "saama": { "note": "fingers across to the signer's left, thumb up, palm to the body, in front of the face on the left (Saama: ends here)", "finger": [1, 0.1, 0], "thumb": [0, 1, 0], "reach": [0.4, 0.1, 0.35], "pole": [-0.8, -1, 0] }
   },
   "thumbPoses": {
     "rest": { "joints": [[0, 0, 0], [0, 0, 0], [0, 0, 0]] },

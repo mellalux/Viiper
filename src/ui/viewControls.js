@@ -45,13 +45,8 @@ const css = `
 .view-panel button:active { background: #2f9e6e; }
 `;
 
-/**
- * @param home () => { position: Vector3, target: Vector3 } the view that reset returns to
- * @param signerView () => { position, target } | null the signer's own view: from between their eyes to the signing hand
- * @returns { update } call once per frame before controls.update(): the signer's view follows the moving hand
- */
-export function createViewControls({ camera, controls, home, signerView }) {
-  let following = false;
+/** @param home () => { position: Vector3, target: Vector3 } the view that reset returns to */
+export function createViewControls({ camera, controls, home }) {
   const style = document.createElement('style');
   style.textContent = css;
   document.head.appendChild(style);
@@ -72,17 +67,11 @@ export function createViewControls({ camera, controls, home, signerView }) {
       <div class="view-panel__views">
         ${VIEWS.map((v) => `<button data-view="${v.id}" title="${v.title}">${v.label}</button>`).join('')}
       </div>
-      <button data-role="signer" title="Sõrmendaja vaade: silmade vahelt paremale käele (nagu sõrmendite joonisel)">Sõrmendaja vaade</button>
     </div>`;
   document.body.appendChild(box);
   makeDraggable(box, box.querySelector('.view-panel__bar'), POS_KEY, () => [16, 16]);
 
-  const stopFollowing = () => (following = false);
-  // dragging the view with the mouse takes it back from the signer's view
-  controls.addEventListener('start', stopFollowing);
-
   const zoom = (factor) => {
-    stopFollowing();
     const offset = camera.position.clone().sub(controls.target);
     const distance = Math.min(Math.max(offset.length() * factor, MIN_DISTANCE), MAX_DISTANCE);
     camera.position.copy(controls.target).addScaledVector(offset.normalize(), distance);
@@ -91,7 +80,6 @@ export function createViewControls({ camera, controls, home, signerView }) {
   box.querySelector('[data-role="in"]').addEventListener('click', () => zoom(1 / STEP));
   box.querySelector('[data-role="out"]').addEventListener('click', () => zoom(STEP));
   box.querySelector('[data-role="reset"]').addEventListener('click', () => {
-    stopFollowing();
     const view = home();
     if (!view) return;
     controls.target.copy(view.target);
@@ -101,29 +89,10 @@ export function createViewControls({ camera, controls, home, signerView }) {
 
   for (const view of VIEWS) {
     box.querySelector(`[data-view="${view.id}"]`).addEventListener('click', () => {
-      stopFollowing();
       const distance = camera.position.distanceTo(controls.target);
       const dir = new Vector3(...view.dir).normalize();
       camera.position.copy(controls.target).addScaledVector(dir, distance);
       controls.update();
     });
   }
-  const aimAtHand = () => {
-    const view = signerView?.();
-    if (!view) return;
-    camera.position.copy(view.position);
-    controls.target.copy(view.target);
-    controls.update();
-  };
-  box.querySelector('[data-role="signer"]').addEventListener('click', () => {
-    following = true;
-    aimAtHand();
-  });
-  if (!signerView) box.querySelector('[data-role="signer"]').disabled = true;
-
-  return {
-    update() {
-      if (following) aimAtHand();
-    },
-  };
 }

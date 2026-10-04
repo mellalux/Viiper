@@ -40,7 +40,7 @@ const css = `
   font: inherit; font-size: 14px; color: #e8e8ec; background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.14);
 }
 .text-panel__input:focus { outline: none; border-color: #5fd0a0; }
-.text-panel__input:disabled { opacity: 0.6; }
+.text-panel__input[readonly] { opacity: 0.6; }
 .text-panel__send {
   width: 36px; height: 36px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 18px; line-height: 1;
   color: #fff; background: #2f9e6e; border: 1px solid #5fd0a0;
@@ -53,6 +53,7 @@ const css = `
   margin: 10px 12px 0; padding: 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.25);
 }
 .text-panel__empty { margin: auto 2px; color: #7a7a85; font-size: 12px; }
+.text-panel__footer { margin: 8px 12px 0; color: #7a7a85; font-size: 12px; }
 .text-panel__chip {
   min-width: 26px; height: 26px; box-sizing: border-box; padding: 0 6px; border-radius: 6px; text-align: center; line-height: 24px;
   font-size: 13px; font-weight: 600; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
@@ -79,13 +80,16 @@ export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, o
       <button class="text-panel__send" type="submit" title="Näita viipeid">➤</button>
       <ul class="text-panel__menu" role="listbox" hidden></ul>
     </form>
-    <div class="text-panel__list"></div>`;
+    <div class="text-panel__list"></div>
+    <div class="text-panel__footer"></div>`;
   const form = panel.querySelector('.text-panel__form');
   const input = panel.querySelector('.text-panel__input');
   const send = panel.querySelector('.text-panel__send');
   const list = panel.querySelector('.text-panel__list');
   const menu = panel.querySelector('.text-panel__menu');
   const known = new Set(letters);
+  // several typed forms (aliases) can show the same sign: count the signs
+  panel.querySelector('.text-panel__footer').textContent = `Sõnaviipeid: ${new Set(Object.values(words)).size}`;
   // words: typed form (upper case, may hold spaces) -> the sign it shows; longest forms are tried first
   const forms = Object.keys(words).sort((a, b) => b.length - a.length);
 
@@ -216,7 +220,7 @@ export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, o
 
   function setPlaying(on) {
     playing = on;
-    input.disabled = on;
+    input.readOnly = on; // not disabled: a disabled field would lose the focus
     if (on) refreshMenu();
     send.classList.toggle('text-panel__send--stop', on);
     send.textContent = on ? '■' : '➤';
@@ -267,6 +271,7 @@ export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, o
     e.preventDefault();
     if (playing) stop();
     else if (items.some((ch) => ch !== ' ')) play();
+    input.focus(); // also when the arrow button was clicked
   });
 
   render();

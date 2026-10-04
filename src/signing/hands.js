@@ -56,7 +56,8 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 
 // A sign can move the hand while it is shown (Z draws its letter in the air, TERE waves): `motion` = { path, duration } in
 // fingerspelling.json / words.json. path = points [x, y, z, tilt, flex, roll, curl] (trailing zeros may be left out), all
-// relative to the pose as tuned, so the first point is the pose itself ([0, 0]):
+// relative to the pose as tuned (the pose a sign ends in, when its first point is not [0, 0]: it then starts elsewhere, e.g. a
+// fist at the temple that becomes a pointing hand at the mouth; curl may then be 1 at the start and 0 at the end):
 //   x, y, z   wrist offset in units of the arm's full length (+x = the viewer's right, +y up, +z = towards the viewer / the character's front)
 //   tilt      degrees the hand swings at the wrist about the palm's normal (+ = fingertips towards the thumb side, as a waving hand)
 //   flex      degrees the wrist bends, fingertips towards the palm (+) or the back of the hand (-), as a nodding fist
@@ -64,6 +65,8 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 //             right hand held palm to the body turns up), as the palm turning over when offering something
 //   curl      0..1 added to the curl of all four fingers, as the fingers folding in a goodbye wave
 // The hand takes the path once, slowing at the corners, and then holds its last point.
+// `motion.stagger` (0 .. 0.33, optional) lets the fingers take the curl channel one after the other instead of together: each
+// finger starts that fraction of the path after the one before (index first) and all end together, as fingers rippling.
 export const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path
 // Two equal letters in a row: the hand makes a small push forward and back (BUMP_DEPTH in arm lengths, +z = the character's front).
 export const BUMP_SECONDS = 0.3;
@@ -164,27 +167,41 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   const eul = new THREE.Euler();
 
   // --- motion along a sign's path (see MOTION_LEAD): `off` is the wrist offset in arm lengths (x, y) and the tilt in degrees (z), applied after the tweaks ---
-  const motion = { def: null, t: 0, from: new Array(CHANNELS).fill(0), off: new Array(CHANNELS).fill(0), paused: false };
+  const motion = { def: null, t: 0, from: new Array(CHANNELS).fill(0), off: new Array(CHANNELS).fill(0), fingerCurl: [0, 0, 0, 0], paused: false };
   let bumpT = null; // seconds into the repeat bump, null when not bumping
   let frozenAt = null; // debug (?at=): hold the hand at this fraction (0..1) of its path
 
+  const fingerPoint = new Array(CHANNELS).fill(0);
+  /** The path at fraction `r`, into motion.off; the curl of each finger into motion.fingerCurl (staggered when the path says so). */
+  const tracePath = (def, r) => {
+    tracePoint(def.path, r, motion.off);
+    const gap = Math.min(Math.max(def.stagger ?? 0, 0), 1 / 3);
+    for (let f = 0; f < 4; f++) {
+      motion.fingerCurl[f] = gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint)[6] : motion.off[6];
+    }
+  };
   const stepMotion = (dt, k) => {
     if (bumpT !== null && !motion.paused) {
       bumpT += Math.min(dt, 0.05);
       if (bumpT >= BUMP_SECONDS) bumpT = null;
     }
     const def = motion.def;
-    if (frozenAt !== null && def) return void tracePoint(def.path, frozenAt, motion.off);
+    if (frozenAt !== null && def) return void tracePath(def, frozenAt);
     if (!def || motion.paused) {
       // no path (or the editor / a frozen pose holds the start): ease back to the tuned pose, at once when paused
       if (motion.paused) motion.t = 0;
       if (motion.paused) bumpT = null;
       for (let c = 0; c < CHANNELS; c++) motion.off[c] *= motion.paused ? 0 : 1 - k;
+      motion.fingerCurl.fill(motion.off[6]);
       return;
     }
     motion.t += Math.min(dt, 0.05); // a stalled frame must not skip the drawing
-    if (motion.t < MOTION_LEAD) for (let c = 0; c < CHANNELS; c++) motion.off[c] = motion.from[c] * (1 - smooth(motion.t / MOTION_LEAD));
-    else tracePoint(def.path, (motion.t - MOTION_LEAD) / def.duration, motion.off);
+    if (motion.t < MOTION_LEAD) {
+      // the hand gets to the first point of the path (the pose itself, unless the path starts elsewhere: a sign that begins at the forehead)
+      const first = tracePoint(def.path, 0, fingerPoint);
+      for (let c = 0; c < CHANNELS; c++) motion.off[c] = first[c] + (motion.from[c] - first[c]) * (1 - smooth(motion.t / MOTION_LEAD));
+      motion.fingerCurl.fill(motion.off[6]);
+    } else tracePath(def, (motion.t - MOTION_LEAD) / def.duration);
   };
 
   /**
@@ -377,7 +394,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
         if (!j) return;
         j.bone.quaternion.copy(j.rest);
         if (n === 0) j.bone.quaternion.multiply(q.setFromAxisAngle(spreadAxis, cur.spread[i] * w));
-        const curl = Math.min(Math.max(cur.curl[i] + motion.off[6], 0), 1);
+        const curl = Math.min(Math.max(cur.curl[i] + motion.fingerCurl[i], 0), 1);
         const angle = curl * HAND_CONFIG.curlJoints[n] + (n === 0 ? cur.knuckle[i] : 0);
         j.bone.quaternion.multiply(q.setFromAxisAngle(curlAxis, angle * axisSign[rig.curlAxis] * w));
       });

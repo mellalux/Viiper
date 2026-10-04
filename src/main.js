@@ -51,18 +51,7 @@ controls.enableDamping = true;
 
 // The view the view panel's reset button returns to; replaced by the framed view once the model has loaded.
 let homeView = { position: camera.position.clone(), target: controls.target.clone() };
-let model = null; // the loaded model's root
-// The signer's own view (as in the finger-spelling chart): from just in front of the eyes, looking at the signing hand.
-function signerView() {
-  const rig = model && detectRig(model);
-  if (!rig) return null;
-  const [l, r] = rig.eyes.map((n) => model.getObjectByName(n));
-  const hand = model.getObjectByName(rig.arm('R').hand);
-  if (!l || !r || !hand) return null;
-  const eyes = l.getWorldPosition(new THREE.Vector3()).add(r.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5);
-  return { position: eyes.add(new THREE.Vector3(0, 0.01, 0.06)), target: hand.getWorldPosition(new THREE.Vector3()) };
-}
-const viewControls = createViewControls({ camera, controls, home: () => homeView, signerView });
+createViewControls({ camera, controls, home: () => homeView });
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 1.5));
 const sun = new THREE.DirectionalLight(0xffffff, 3);
@@ -109,7 +98,6 @@ function frameUpperBody() {
 loader.load(
   MODEL_URL,
   (gltf) => {
-    model = gltf.scene;
     scene.add(gltf.scene);
     frameUpperBody();
     for (const k of ['openAngle', 'closedAngle', 'scale']) if (params.has(k)) BLINK_CONFIG[k] = +params.get(k);
@@ -215,7 +203,6 @@ renderer.setAnimationLoop(() => {
   gaze?.update(dt);
   morphs?.flush();
   boneEditor?.update();
-  viewControls.update(); // the signer's view follows the hand
   controls.update();
   renderer.render(scene, camera);
 });
