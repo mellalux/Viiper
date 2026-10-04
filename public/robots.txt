@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://viiper.lux.ee/sitemap.xml
