@@ -55,8 +55,56 @@ function createMorphMouth(root, morphs, smoothing) {
   };
 }
 
+// Mouthing a word: its letters' visemes one after another (repeats merged, a space is a pause), each held for
+// duration / letters seconds, kept within these limits so a short word on a long sign isn't drawn out and a long one isn't gabbled.
+const MIN_LETTER_S = 0.08;
+const MAX_LETTER_S = 0.2;
+const DEFAULT_LETTER_S = 0.12;
+
+/** Adds speak() to either kind of mouth; setViseme / snapViseme (a letter, or rest) cancel any word being mouthed. */
+function withSpeech(mouth) {
+  let seq = null; // { shapes, per, t } while a word is being mouthed; t < 0 is the delay before it starts
+  return {
+    setViseme(name) {
+      seq = null;
+      mouth.setViseme(name);
+    },
+    snapViseme(name) {
+      seq = null;
+      mouth.snapViseme(name);
+    },
+    /** Mouth a word or phrase. duration (seconds) is the time its sign takes, delay the wait before the first letter. */
+    speak(text, { duration = 0, delay = 0 } = {}) {
+      const shapes = [];
+      for (const ch of text.toUpperCase()) {
+        const shape = ch === ' ' ? 'rest' : LETTERS[ch];
+        if (shape && shape !== shapes[shapes.length - 1]) shapes.push(shape);
+      }
+      if (!shapes.some((s) => s !== 'rest')) return;
+      const per = duration ? THREE.MathUtils.clamp(duration / shapes.length, MIN_LETTER_S, MAX_LETTER_S) : DEFAULT_LETTER_S;
+      seq = { shapes, per, t: -delay };
+      mouth.setViseme('rest');
+    },
+    update(dt) {
+      if (seq) {
+        seq.t += dt;
+        const i = Math.floor(seq.t / seq.per);
+        if (i >= seq.shapes.length) {
+          seq = null;
+          mouth.setViseme('rest');
+        } else if (i >= 0) mouth.setViseme(seq.shapes[i]);
+      }
+      mouth.update(dt);
+    },
+  };
+}
+
 /** @param morphs the model's shape-key layer (morphs.js); needed for rigs whose face is shape keys */
-export function createMouth(root, { smoothing = 22, morphs = null } = {}) {
+export function createMouth(root, options = {}) {
+  return withSpeech(createVisemeMouth(root, options));
+}
+
+function createVisemeMouth(root, { smoothing = 22, morphs = null } = {}) {
   if (morphs && detectRig(root)?.id === 'cc' && morphs.has('V_Open')) return createMorphMouth(root, morphs, smoothing);
   root.updateMatrixWorld(true);
   const get = (name) => root.getObjectByName(name);

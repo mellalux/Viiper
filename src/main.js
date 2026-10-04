@@ -236,15 +236,21 @@ createTextPanel(Object.keys(LETTERS), {
   },
 });
 
-function say(letter) {
-  mouth?.setViseme(LETTERS[letter] ?? 'rest');
+const WORD_SIGNS = new Set(Object.values(WORD_FORMS));
+
+// text: what was typed for a word sign (an alias such as "PALJU ÕNNE"), which the mouth then says; defaults to the sign's own word
+function say(letter, text = letter) {
+  if (WORD_SIGNS.has(letter)) {
+    // the mouth follows the hand: it starts when the sign's motion does and spreads the word over it
+    mouth?.speak(text, { duration: SIGNS[letter].motion?.duration, delay: SIGNS[letter].motion ? MOTION_LEAD : 0 });
+  } else mouth?.setViseme(LETTERS[letter] ?? 'rest');
   hands?.setSign(letter);
   handsL?.setSign(letter); // joins in two-handed letters, otherwise stays in standby
   panel.setActive(letter);
 }
 
-function press(letter) {
-  say(letter);
+function press(letter, text) {
+  say(letter, text);
   boneEditor?.setLetter(letter);
   signEditor?.setSign(letter);
 }

@@ -252,7 +252,7 @@ export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, o
       chip.classList.add('text-panel__chip--current');
       chip.scrollIntoView({ block: 'nearest' });
       const sign = words[ch] ?? ch;
-      onPress(sign);
+      onPress(sign, ch); // ch is what was typed: for an alias ("PALJU ÕNNE") the mouth says that, not the sign's own word
       const repeated = items.slice(i).find((c) => c !== ' ') === ch; // the next sign is the same letter
       timer = setTimeout(() => {
         onRelease(sign);
