@@ -123,6 +123,7 @@ loader.load(
         select: press,
         onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
         currentSign: () => hands?.key,
+        handOf: (side) => (side === 'L' ? handsL : hands),
         info: () => {
           const [r, l] = twist?.angles() ?? [0, 0];
           return `Randme väänd: parem ${r}°, vasak ${l}°${Math.abs(r) > 100 || Math.abs(l) > 100 ? '  ⚠ käsivars võib näida keerdus' : ''}`;

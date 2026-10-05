@@ -513,6 +513,49 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     /** Keep the arm and hand out of the body (the `body` given to createHands); call last, after applyMotion. */
     avoidBody,
     guard,
+    /**
+     * The pose the bones are in now, written as the data of a sign (the inverse of setSign + pose): the orient (wrist position,
+     * elbow, which way the fingers and thumb point; in the stored right-hand coordinates), the wrist bend in degrees, and the
+     * curl / spread / knuckle of each finger. Giving a sign this data reproduces the arm and the finger curls; what it can't
+     * say (thumb, odd joint angles) is left to the bone tweaks.
+     */
+    readPose() {
+      root.updateMatrixWorld(true);
+      const r3 = (a) => a.map((x) => Math.round(x * 1000) / 1000);
+      const r2 = (x) => Math.round(x * 100) / 100;
+      const shoulder = wp(upperArm);
+      const elbow = wp(foreArm);
+      const wrist = wp(hand);
+      const u = wrist.clone().sub(shoulder);
+      const reach = u.clone().divideScalar(l1 + l2);
+      u.normalize();
+      const pole = elbow.clone().sub(shoulder);
+      pole.addScaledVector(u, -pole.dot(u)).normalize();
+      const handQ = wq(hand);
+      const finger = new THREE.Vector3(0, 1, 0).applyQuaternion(handQ);
+      const thumb = new THREE.Vector3(0, 0, 1).applyQuaternion(handQ);
+      const bend = THREE.MathUtils.radToDeg(finger.angleTo(wrist.clone().sub(elbow).normalize()));
+      // the angle a rotation turns about an axis (swing-twist), -pi .. pi
+      const twist = (qq, axis) => {
+        const a = 2 * Math.atan2(qq.x * axis.x + qq.y * axis.y + qq.z * axis.z, qq.w);
+        return a > Math.PI ? a - 2 * Math.PI : a < -Math.PI ? a + 2 * Math.PI : a;
+      };
+      const curl = [];
+      const spread = [];
+      const knuckle = [];
+      digits.forEach((joints) => {
+        const rel = joints.map((j) => j && j.rest.clone().invert().multiply(j.bone.quaternion));
+        const angle = (n) => (rel[n] ? twist(rel[n], curlAxis) * axisSign[rig.curlAxis] : 0);
+        const c = Math.min(Math.max(angle(1) / HAND_CONFIG.curlJoints[1], 0), 1);
+        const a0 = angle(0);
+        curl.push(r2(c));
+        knuckle.push(rel[0] ? r2(Math.min(Math.max(a0 - c * HAND_CONFIG.curlJoints[0], -0.3), 1.5)) : 0);
+        // the base joint turned first about the spread axis, then about the curl axis: take the curl off to see the spread
+        const s = rel[0] ? rel[0].clone().multiply(new THREE.Quaternion().setFromAxisAngle(curlAxis, a0 * axisSign[rig.curlAxis]).invert()) : null;
+        spread.push(s ? r2(Math.min(Math.max(twist(s, spreadAxis) * axisSign[rig.spreadAxis] * rig.spreadSign, -0.5), 0.5)) : 0);
+      });
+      return { orient: { reach: r3(mx(reach.toArray())), pole: r3(mx(pole.toArray())), finger: r3(mx(finger.toArray())), thumb: r3(mx(thumb.toArray())) }, bend, curl, spread, knuckle };
+    },
     /** Debug: show the sign with its motion held at this fraction (0..1) of the path; null plays it normally. */
     freezeMotion(r) {
       frozenAt = r;

@@ -871,7 +871,7 @@
       }
     },
     "U": {
-      "left": {},
+      "curl": [1, 1, 0, 0], "thumb": "rest", "spread": [-0.08, -0.09, 0.1, 0.09], "knuckle": [-0.01, -0.01, 0.27, 0.31], "dir": "up", "orient": { "reach": [0.084, -0.129, 0.451], "pole": [-0.44, -0.882, -0.17], "finger": [-0.098, 0.898, 0.429], "thumb": [0.808, 0.324, -0.493] }, "left": {},
       "tweaks": {
         "CC_Base_L_Forearm": { "rot": [83, 60, -3] },
         "CC_Base_L_Thumb1": { "rot": [-10, 0, 0] },
@@ -888,23 +888,22 @@
         "CC_Base_L_Thumb3": { "rot": [-37, 0, 0] },
         "CC_Base_L_Upperarm": { "rot": [20, -7, -33] },
         "CC_Base_L_Hand": { "rot": [2, -75, -40] },
-        "CC_Base_R_Upperarm": { "rot": [29.4, -2.9, 40.3] },
-        "CC_Base_R_Forearm": { "rot": [120.6, 5, -3] },
-        "CC_Base_R_Hand": { "rot": [-21.5, -54.3, -57.3] },
+        "CC_Base_R_Upperarm": { "rot": [0, -13.8, 0] },
+        "CC_Base_R_Forearm": { "rot": [20.5, 87.2, -32] },
+        "CC_Base_R_Hand": { "rot": [85.6, -76.3, 34.2] },
         "CC_Base_R_Thumb1": { "rot": [-40, 0, 30] },
         "CC_Base_R_Thumb3": { "rot": [-67, -20, -3] },
         "CC_Base_R_Thumb2": { "rot": [-18, 0, 0] },
-        "CC_Base_R_Index2": { "rot": [0, 0, 13] },
-        "CC_Base_R_Index3": { "rot": [0, 0, 5] },
-        "CC_Base_R_Mid1": { "rot": [5, 0, 2] },
-        "CC_Base_R_Mid2": { "rot": [0, 0, 8] },
-        "CC_Base_R_Mid3": { "rot": [0, 0, 20] },
-        "CC_Base_R_Pinky1": { "rot": [-5, 0, 88] },
-        "CC_Base_R_Pinky2": { "rot": [0, 0, 85] },
-        "CC_Base_R_Pinky3": { "rot": [0, 0, 58] },
-        "CC_Base_R_Ring1": { "rot": [-3, -3, 80] },
-        "CC_Base_R_Ring2": { "rot": [0, 0, 75] },
-        "CC_Base_R_Ring3": { "rot": [0, 0, 80] }
+        "CC_Base_R_Index3": { "rot": [0, 0, -3.6] },
+        "CC_Base_R_Mid1": { "rot": [-0.2, 0, -0.1] },
+        "CC_Base_R_Mid3": { "rot": [0, 0, 14.7] },
+        "CC_Base_R_Pinky1": { "rot": [0, -0.2, -0.4] },
+        "CC_Base_R_Pinky2": { "rot": [0, 0, -0.2] },
+        "CC_Base_R_Pinky3": { "rot": [0, 0, 2] },
+        "CC_Base_R_Ring1": { "rot": [-3, -0.4, -0.1] },
+        "CC_Base_R_Ring2": { "rot": [0, 0, -0.2] },
+        "CC_Base_R_Ring3": { "rot": [0, 0, 4] },
+        "CC_Base_R_Index1": { "rot": [0, 0, 0.1] }
       }
     },
     "V": {

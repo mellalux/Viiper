@@ -159,11 +159,12 @@ const trim = (pt) => {
  * @param freeze       (fraction | null) => hold the motion at that fraction of its path, or let it play
  * @param select       (key) => show the sign everywhere (mouth, letter panel, text panel)
  * @param onStandby    (on) => whether the hands wait in the standby pose between signs
+ * @param handOf       (side 'R' | 'L') => that hand (hands.js): its bones and the pose they are in
  * @param currentSign  () => the key the character is signing now, if any
  * @param info         () => text with the arms' current state (the wrist twist)
  * @param onLayout     (px) => height of the dock when open, 0 when closed: the scene moves up to stay above it
  */
-export function createFineTuner({ scene, camera, controls, dom, tweaks, letters, show, play, freeze, select, onStandby, currentSign = () => null, info = () => '', onLayout = () => {} }) {
+export function createFineTuner({ scene, camera, controls, dom, tweaks, letters, show, play, freeze, select, onStandby, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
   const readLS = (k) => {
     try {
       return JSON.parse(localStorage.getItem(k));
@@ -491,20 +492,46 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     return [];
   }
 
-  // a hand whose sign has no finger data: only the bone tweaks pose it. Giving it finger data makes the sign pose the hand (the
-  // tweaks then sit on top of that pose, so ones made against the bare model may want redoing).
+  // a hand whose sign has no finger data: only the bone tweaks pose it. Giving it finger data hands the pose over to the sign
+  // without changing how the hand looks.
   function fingerDataNote() {
     const p = part();
     const add = el('button', '', 'Määra sõrmeandmed');
     add.addEventListener('click', () => {
-      p.curl = [0, 0, 0, 0];
+      // Keep the pose: the sign's data are read from the bones as they are now (wrist, elbow, finger curls), and what those
+      // can't say stays in the bone tweaks as the difference between the sign's own pose and the one shown now.
+      const h = handOf(hand);
+      const target = new Map(h.boneList.map((b) => [b, b.quaternion.clone()]));
+      const read = h.readPose();
+      undoSnapshot = tweaks.export();
       p.thumb ??= 'rest';
       p.dir ??= defaultDir();
+      p.curl = read.curl;
+      if (read.spread.some((v) => v)) p.spread = read.spread;
+      if (read.knuckle.some((v) => v)) p.knuckle = read.knuckle;
+      p.orient = { ...read.orient };
+      const named = ORIENT[p.dir]?.maxBend ?? HAND_CONFIG.maxWristBend;
+      if (read.bend > named) p.orient.maxBend = Math.min(Math.ceil(read.bend) + 1, 120);
+      changed(); // shows the sign: the bones are now in its own pose, without tweaks
+      let moved = 0;
+      for (const e of tweaks.bones) {
+        const was = target.get(e.bone);
+        if (!was || e.group !== (hand === 'R' ? 'right' : 'left')) continue;
+        const d = e.bone.quaternion.clone().invert().multiply(was);
+        const eul = new THREE.Euler().setFromQuaternion(d, 'XYZ');
+        const rot = [eul.x, eul.y, eul.z].map((r) => Math.round(THREE.MathUtils.radToDeg(r) * 10) / 10);
+        const k = tweaks.keyOf(e.name, key);
+        tweaks.set(k, e.name, { rot, pos: tweaks.get(k, e.name).pos });
+        if (rot.some((r) => r !== 0)) moved++;
+      }
+      copyUndo.disabled = false;
+      copyNote.textContent = `Käe asend ja sõrmed võeti praegusest poosist${moved ? `; ${moved} luu erinevus jäi luude seadetesse` : ''}.`;
+      bonesChanged();
+      refreshBone();
       renderHand();
-      changed();
     });
     return [
-      el('div', 'fd__note', 'Selle käe asendit ja sõrmi ei määra andmed: need on ainult luude peenhäälestuse järgi. Määra sõrmeandmed, kui tahad käe asendit ja sõrmi siin muuta; siis seab märk käe ise ja luude peenhäälestus tuleb selle peale.'),
+      el('div', 'fd__note', 'Selle käe asendit ja sõrmi ei määra andmed: need on ainult luude peenhäälestuse järgi. „Määra sõrmeandmed“ võtab käe praeguse asendi märgi andmeteks (poos ei muutu), et seda siin edasi muuta.'),
       add,
     ];
   }
