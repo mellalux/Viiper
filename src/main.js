@@ -186,9 +186,11 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  const dt = clock.getDelta();
+const timer = new THREE.Timer();
+timer.connect(document); // ignores the time spent in a hidden tab, so dt doesn't spike on return
+renderer.setAnimationLoop((time) => {
+  timer.update(time);
+  const dt = timer.getDelta();
   mixer?.update(dt);
   if (!params.has('blink')) blinker?.update(dt);
   // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
