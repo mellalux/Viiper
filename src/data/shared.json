@@ -42,14 +42,6 @@
     "ring": { "note": "tip touching the index tip", "joints": [[0, 0, -0.6], [0.4, 0, 0], [0.3, 0, 0]] },
     "opposed": { "note": "facing the fingers, not touching (C)", "joints": [[-0.3, 0, -0.5], [0.3, 0, 0], [0.2, 0, 0]] }
   },
-  "limits": {
-    "note": "joint limits, degrees (limits.js): finger joints (mcp = knuckle, pip, dip): curl + = towards the palm, spread + = towards the little finger, twist about the finger's own axis. Wider than a real finger: the hand-tuned letters (fingerspelling.json tweaks) reach these values on this model; anything beyond is clamped",
-    "finger": {
-      "mcp": { "curl": [-30, 100], "spread": [-40, 40], "twist": [-35, 35] },
-      "pip": { "curl": [-10, 120], "spread": [-12, 12], "twist": [-15, 15] },
-      "dip": { "curl": [-15, 125], "spread": [-12, 12], "twist": [-30, 30] }
-    }
-  },
   "visemes": {
     "rest": {},
     "A": { "jaw": 0.3, "cornerIn": -0.004, "lowerDown": 0.016, "upperUp": 0.006 },

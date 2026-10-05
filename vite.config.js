@@ -9,6 +9,8 @@ const SAVE_URL = '/__save-sign-tweaks';
 const DEFS_URL = '/__save-sign-defs'; // the fine-tuning window: curl, orient, motion ... of whole signs
 const SIGNS_FILE = 'src/data/fingerspelling.json'; // also holds the body's `global` tweaks
 const WORDS_FILE = 'src/data/words.json';
+const LIMITS_URL = '/__save-limits'; // the fine-tuning window: rotation limits of single bones
+const LIMITS_FILE = 'src/data/limits.json';
 const PIN_FILE = '.save-pin';
 const MAX_WRONG_PINS = 5; // this many wrong PINs in a row lock saving for a minute
 const LOCK_MS = 60_000;
@@ -36,6 +38,12 @@ const sign = (s, depth) => {
 export const serialize = (data) =>
   `${block(data, 0, (v, depth, key) => (key === 'signs' ? block(v, depth, sign) : block(v, depth, inline)))}\n`;
 
+// limits.json: the notes, then one finger joint / one bone per line
+export const serializeLimits = (data) => `${block(data, 0, (v, depth, key) => (key === 'bones' || key === 'finger' ? block(v, depth, inline) : inline(v)))}\n`;
+
+// the name of a new word sign (the same rule as signDefs.js)
+const SIGN_NAME = /^[\p{L}\p{N}][\p{L}\p{N} -]{1,39}$/u;
+
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
 // A sign's definition (what the fine-tuning window saves). The fields a sign may have, in the order they are written; `note` and
@@ -60,6 +68,7 @@ const saveSignTweaks = () => {
   let file;
   let wordsFile;
   let pinFile;
+  let limitsFile;
   let ownWriteUntil = 0;
   let wrongPins = 0;
   let lockedUntil = 0;
@@ -87,6 +96,7 @@ const saveSignTweaks = () => {
       file = path.resolve(config.root, SIGNS_FILE);
       wordsFile = path.resolve(config.root, WORDS_FILE);
       pinFile = path.resolve(config.root, PIN_FILE);
+      limitsFile = path.resolve(config.root, LIMITS_FILE);
     },
     configureServer(server) {
       readPin(); // make sure the file exists (and show a new PIN in the terminal)
@@ -147,10 +157,18 @@ const saveSignTweaks = () => {
         writeFiles(files);
       }));
 
-      // body: { signs: { SIGN: definition } } - replaces the definition fields of those signs, keeps their note and tweaks
+      // body: { signs: { SIGN: definition }, create?: [SIGN, ...] } - replaces the definition fields of those signs, keeps their note and
+      // tweaks; the signs named in `create` are added to words.json first (a name that is taken, or not an upper-case word, is refused)
       server.middlewares.use(DEFS_URL, guarded((state) => {
         if (!isObject(state) || !isObject(state.signs)) throw new Error('expected { signs }');
         const files = readFiles();
+        const create = state.create ?? [];
+        if (!Array.isArray(create)) throw new Error('"create" must be a list of sign names');
+        for (const name of create) {
+          if (typeof name !== 'string' || !SIGN_NAME.test(name) || name !== name.toLocaleUpperCase('et')) throw new Error(`bad sign name "${name}"`);
+          if (files.some(({ data }) => data.signs[name] || name in (data.aliases ?? {}))) throw new Error(`sign "${name}" exists already`);
+          files[1].data.signs[name] = {};
+        }
         for (const [key, def] of Object.entries(state.signs)) {
           const data = files.find(({ data: d }) => d.signs[key])?.data;
           if (!data) throw new Error(`unknown sign "${key}"`);
@@ -164,10 +182,42 @@ const saveSignTweaks = () => {
         }
         writeFiles(files);
       }));
+
+      // body: { bones: { name: { x, y, z } }, finger?: {...} } - replaces all the bone limits ([min, max] degrees per axis, min <= max)
+      server.middlewares.use(LIMITS_URL, guarded((state) => {
+        if (!isObject(state) || !isObject(state.bones)) throw new Error('expected { bones }');
+        const bones = {};
+        for (const [name, range] of Object.entries(state.bones)) {
+          if (!isObject(range)) throw new Error(`bad limits for "${name}"`);
+          const entry = {};
+          for (const [axis, r] of Object.entries(range)) {
+            const max = axis === 'y' ? 90 : 180;
+            if (!['x', 'y', 'z'].includes(axis) || !nums(r, 2) || r[0] > r[1] || r[0] < -max || r[1] > max) throw new Error(`bad range "${name}.${axis}"`);
+            entry[axis] = r;
+          }
+          if (Object.keys(entry).length) bones[name] = entry;
+        }
+        // optional: the finger joints' ranges { mcp|pip|dip: { curl|spread|twist: [min, max] } }; the note stays
+        const raw = fs.readFileSync(limitsFile, 'utf8');
+        const old = JSON.parse(raw);
+        const finger = old.finger?.note ? { note: old.finger.note } : {};
+        for (const [joint, ranges] of Object.entries(state.finger ?? {})) {
+          if (!['mcp', 'pip', 'dip'].includes(joint) || !isObject(ranges)) throw new Error(`bad finger joint "${joint}"`);
+          const entry = {};
+          for (const [axis, r] of Object.entries(ranges)) {
+            if (!['curl', 'spread', 'twist'].includes(axis) || !nums(r, 2) || r[0] > r[1] || r[0] < -180 || r[1] > 180) throw new Error(`bad range "${joint}.${axis}"`);
+            entry[axis] = r;
+          }
+          if (Object.keys(entry).length) finger[joint] = entry;
+        }
+        const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+        ownWriteUntil = Date.now() + 1500;
+        fs.writeFileSync(limitsFile, serializeLimits({ ...old, finger, bones }).replace(/\n/g, eol));
+      }));
     },
     // The page already holds this state; don't reload it just because we wrote the file. Hand edits still reload.
     handleHotUpdate({ file: changed }) {
-      if ([file, wordsFile].includes(path.resolve(changed)) && Date.now() < ownWriteUntil) return [];
+      if ([file, wordsFile, limitsFile].includes(path.resolve(changed)) && Date.now() < ownWriteUntil) return [];
     },
   };
 };

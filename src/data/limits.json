@@ -1,0 +1,10 @@
+{
+  "note": "All joint limits, degrees. `finger`: the finger bones, edited by hand here. `bones`: any single bone, set in the fine-tuning window (Peenhäälestus > Luu peenhäälestus > Pöörde piirid): x, y, z are the bone's own axes, measured from its rest pose (Euler XYZ, the same axes as the 'Pööre' sliders), each range [min, max] (it need not contain 0), a missing axis is free, y only goes to +-90. The bone limits are applied last in every frame (limits.js), after signs, motion, tweaks and IK; the finger limits right after the tweaks.",
+  "finger": {
+    "note": "joint limits of the finger bones (mcp = knuckle, pip, dip): curl + = towards the palm, spread + = towards the little finger, twist about the finger's own axis. Wider than a real finger: the hand-tuned letters (fingerspelling.json tweaks) reach these values on this model; anything beyond is clamped. A range that is left out means no limit on that axis.",
+    "mcp": { "curl": [-30, 100], "spread": [-40, 40], "twist": [-35, 35] },
+    "pip": { "curl": [-10, 120], "spread": [-12, 12], "twist": [-15, 15] },
+    "dip": { "curl": [-15, 125], "spread": [-12, 12], "twist": [-30, 30] }
+  },
+  "bones": {}
+}

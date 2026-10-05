@@ -12,7 +12,7 @@ import { SIGNS, STANDBY, WORD_FORMS, MOTION_LEAD, ORIENT, THUMB_POSES, HAND_CONF
 import { createMorphs } from './character/morphs.js';
 import { createGaze } from './character/gaze.js';
 import { createTweaks } from './signing/tweaks.js';
-import { createLimits } from './signing/limits.js';
+import { createLimits, createBoneLimits } from './signing/limits.js';
 import { createBody } from './signing/body.js';
 import { createTwist } from './signing/twist.js';
 import { createFineTuner } from './ui/fineTuner.js';
@@ -72,6 +72,7 @@ let hands = null; // the signing (right) hand
 let handsL = null; // the other hand: only ever in its standby pose
 let morphs = null; // the model's shape keys (face morph targets), summed over their drivers
 let limits = null; // joint limits of the fingers
+let boneLimits = null; // hand-set rotation limits of any single bone (limits.json)
 let twist = null; // shares the hand's twist out over the forearm so the wrist skin isn't wrung
 let body = null; // collision shape of the trunk and head, keeps the arms out of it
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
@@ -104,6 +105,7 @@ loader.load(
     for (const k of ['openAngle', 'closedAngle', 'scale']) if (params.has(k)) BLINK_CONFIG[k] = +params.get(k);
     morphs = createMorphs(gltf.scene);
     tweaks = createTweaks(gltf.scene, { weight: (side) => (side === 'L' ? handsL : hands)?.weight ?? 0, morphs }); // before anything poses the rig
+    boneLimits = createBoneLimits(gltf.scene); // also before anything poses the rig: it keeps the rest pose
     blinker = createBlinker(gltf.scene, { morphs });
     mouth = createMouth(gltf.scene, { morphs });
     if (params.get('gaze') !== '0') gaze = createGaze(gltf.scene, { camera });
@@ -118,7 +120,7 @@ loader.load(
     // the fine-tuning dock (and its save button) only exists on the dev server, not in the production build
     if (import.meta.env.DEV) {
       fineTuner = createFineTuner({
-        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
+        scene, camera, controls, dom: renderer.domElement, tweaks, boneLimits, fingerLimits: limits, letters: Object.keys(SIGNS),
         show: (k) => [hands, handsL].forEach((h) => h?.snapSign(k)),
         play: say,
         freeze: (r) => [hands, handsL].forEach((h) => h?.freezeMotion(r)),
@@ -137,7 +139,7 @@ loader.load(
     hands?.snapSign(params.get('sign'));
     handsL?.snapSign(params.get('sign'));
     if (params.has('at')) [hands, handsL].forEach((h) => h?.freezeMotion(+params.get('at'))); // ?sign=TERE&at=0.5: hold the motion half way
-    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, body, twist, fineTuner, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
+    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, boneLimits, body, twist, fineTuner, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
     window.__modelReady = true;
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
@@ -194,6 +196,19 @@ timer.connect(document); // ignores the time spent in a hidden tab, so dt doesn'
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = timer.getDelta();
+  // The limits editor: the model stands in its rest pose (no animation, signs, tweaks or expressions), only the bones turned by hand move.
+  if (boneLimits?.editing) {
+    boneLimits.applyEdit();
+    morphs?.reset();
+    if (boneLimits.preview) {
+      limits?.apply(true);
+      boneLimits.apply(true);
+    }
+    fineTuner?.update();
+    controls.update();
+    renderer.render(scene, camera);
+    return;
+  }
   mixer?.update(dt);
   if (!params.has('blink')) blinker?.update(dt);
   // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
@@ -214,6 +229,7 @@ renderer.setAnimationLoop((time) => {
   }
   twist?.apply(); // the arms have their final pose: the forearm's twist bones follow the hand
   gaze?.update(dt);
+  boneLimits?.apply(); // last of all: nothing may turn a bone past the limits set in limits.json
   morphs?.flush();
   fineTuner?.update();
   controls.update();
@@ -255,7 +271,7 @@ createSignBrowser([...WORD_SIGNS], {
 
 // text: what was typed for a word sign (an alias such as "PALJU ÕNNE"), which the mouth then says; defaults to the sign's own word
 function say(letter, text = letter) {
-  if (WORD_SIGNS.has(letter)) {
+  if (WORD_FORMS[letter] === letter) { // a word sign (also one just added in the editor)
     // the mouth follows the hand: it starts when the sign's motion does and spreads the word over it
     mouth?.speak(text, { duration: SIGNS[letter].motion?.duration, delay: SIGNS[letter].motion ? MOTION_LEAD : 0 });
   } else mouth?.setViseme(LETTERS[letter] ?? 'rest');
@@ -276,6 +292,7 @@ function release() {
 
 let heldKey = null;
 window.addEventListener('keydown', (e) => {
+  if (boneLimits?.editing) return; // no signs in the limits editor
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'SELECT') return;
   if (e.key === 'Escape') return say(null);
   const letter = e.key.toUpperCase();

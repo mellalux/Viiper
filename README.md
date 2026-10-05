@@ -55,14 +55,16 @@ If the model fails to load, a placeholder cube is shown.
 
 ## Fine-tuning signs (*Peenhäälestus*)
 
-On the dev server the **Peenhäälestus** button (top right) opens one horizontal window along the bottom of the screen: blocks with the settings on top, the motion timeline below. The scene moves up to stay above it; drag the window's top edge to change its height. It remembers whether it was open.
+On the dev server the **Peenhäälestus** button (top right) opens one horizontal window along the bottom of the screen: blocks with the settings on top, the motion timeline below. The scene moves up to stay above it; drag the window's top edge to change its height. *▾ Seaded* (in the bar) hides the setting blocks and *▾ Ajajoon* the timeline's tracks (its head with the play button stays); the window shrinks by as much and the scene gets the room. Both are remembered. It remembers whether it was open.
 
 **Blocks**
 
 - **Märk:** search for a letter or a word (accents don't matter, Enter picks the first hit) or click one in the list; a dot marks signs with unsaved changes. *Parem käsi* / *Vasak käsi* choose which hand the blocks and the timeline edit (the left hand can be added to or removed from a sign). *Ooteasend tähtede vahel* keeps the hands in the standby pose between signs.
+- **Uus märk** (in the *Märk* block): type a name (upper-cased; 2–40 letters, digits, spaces or hyphens; a name that is taken is refused), optionally tick *Alusta valitud märgi koopiast* to start from the selected sign's definition and bone tweaks, and press *＋ Lisa märk*. The new sign is a word sign, selected at once and edited like any other; until it is saved it can be removed again with *Kustuta see uus märk*. Adding or removing a sign starts the undo history over. *Salvesta faili* appends it to [src/data/words.json](src/data/words.json) and reloads the page, so the text box suggestions and the sign list (*Viiped*) pick it up too.
 - **Käe asend:** the named orient (`dir`) plus this sign's own changes to it: wrist position (`reach`), elbow direction (`pole`), which way the fingers and thumb point, the wrist bend limit. Changes are kept in the sign as `orient` and never touch other signs that use the same named orient. It also shows *Randme väänd*, the twist of the hands against the forearms.
 - **Sõrmed:** curl, spread and knuckle bend of each finger and the thumb pose. (The finger-spelling letters have no finger data, only bone tweaks: *Määra sõrmeandmed* adds it.)
 - **Luu peenhäälestus:** the rotation of any bone (arms and fingers, face and lips, body) and the weight of any face shape key. Pick a group and a bone (from the list, or by clicking its marker in the scene) and use the sliders. Tweaks apply per sign for the face and the signing arm, to the standby pose for the other arm, and always for the body. Optionally mirror the edit to the opposite side.
+  The rotation **limits** are set apart from the signs, in the **Luu piirid** editor (button at the top right, also "Muuda piire…" in this block). Opening it puts the model into its rest pose (no sign, tweaks or animation) and hides every panel but *Vaade*; a floating window (drag it by its bar, fold it with ▾ or a double click) lets you pick a bone and turn it by hand in any direction without limits (the *Pööre* sliders; Euler XYZ about the bone's own axes, measured from the rest pose; Y reaches ±90, X and Z ±180). *⇤* / *⇥* take the angle the bone is at as its min / max (blank = free), typing a min or max turns the bone (and its slider) to that angle so the limit can be seen, *Kärbi piiridega* previews what the limits do to the pose (red angle: the limit holds the bone), *Eemalda luu piirid* clears the bone, the arms' twist helper bones (`…Twist01`, marked *väände abiluu*) can only be turned about Y, their long axis (X and Z are locked: they would only crumple the skin), and **Salvesta piirid** (PIN) writes them to [src/data/limits.json](src/data/limits.json); the rotations tried there are not saved. For a finger bone (index to little finger) the editor also shows the limits of that joint kind (MCP, PIP or DIP) as curl (P), spread (L) and twist (V); they are shared by that joint of every finger on both hands (`finger` in the same file). The thumb has no such table: limit its bones with X/Y/Z. Limits apply to the final pose in every sign and motion (also to what the hand code or the IK does), and the *Pööre* sliders of the bone block stop at them: a bone that nothing else poses simply gets the limit as the slider's end; for the arms and fingers (posed by the hand code first) the slider stops at the point where the limit starts to hold the bone, for as long as it is being dragged.
 - **Kopeeri teisest märgist:** copy bone tweaks from another sign (whole sign, the chosen group or the chosen bone), with one step of undo.
 
 **Timeline (*Liikumine*)** shows the sign's motion path, one track per channel (`x y z tilt flex roll curl`, see [src/signing/hands.js](src/signing/hands.js)). The character holds the sign at the playhead while you edit; *▶ Mängi* plays it. The points of the path are the dots:
@@ -73,7 +75,7 @@ On the dev server the **Peenhäälestus** button (top right) opens one horizonta
 
 **Undo:** *↶ Tagasi* / *↷ Uuesti* in the bar (or Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y) step through every edit, sign definitions and bone tweaks alike, and go back to the sign and hand that was edited. A slider drag or a typed number is one step: it is recorded when the slider is let go or the field loses focus. *Lae failist* can be undone too; saving to the files starts the history over.
 
-Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili**. It asks for the PIN and writes the changed sign definitions and bone tweaks into [src/data/fingerspelling.json](src/data/fingerspelling.json) (letters) or [src/data/words.json](src/data/words.json) (word signs), whichever file holds the sign (the signs' notes are kept; the files are rewritten in the compact layout). It works **only on the dev server**. *Lähtesta märk* sends the sign's definition back to what the file holds; *Lae failist* drops the whole working copy.
+Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili**. It asks for the PIN and writes the changed sign definitions and bone tweaks into [src/data/fingerspelling.json](src/data/fingerspelling.json) (letters) or [src/data/words.json](src/data/words.json) (word signs), whichever file holds the sign (the signs' notes are kept; the files are rewritten in the compact layout). The bone limits go to [src/data/limits.json](src/data/limits.json) the same way. It works **only on the dev server**. *Lähtesta märk* sends the sign's definition back to what the file holds; *Lae failist* drops the whole working copy.
 
 ### Fixing a sign that looks wrong
 
@@ -105,6 +107,7 @@ src/
                         thumb poses, visemes, letter → viseme table, per-rig data
     fingerspelling.json the letters (curls, directions, motion) and saved tweaks
     words.json          word signs, same format as the letters (key = upper-case word)
+    limits.json         rotation limits of single bones (set in the fine-tuning window)
   character/            the model's face and eyes
     rigs.js             skeleton profiles (Rigify, Character Creator)
     morphs.js           shared shape-key layer (mouth, blink and tweaks add up)
@@ -114,7 +117,7 @@ src/
   signing/              finger-spelling
     hands.js            poses and arm IK
     tweaks.js           hand-tuned bone / shape offsets layered on top of poses
-    limits.js           finger joint limits
+    limits.js           joint limits (limits.json): the fingers and any single bone
     signDefs.js         sign definitions edited in the fine-tuning window (baseline, working copy)
     twist.js            shares the wrist twist over the forearm (skin)
     body.js             trunk / head collision shape (keeps arms out of the body)
@@ -149,7 +152,7 @@ Details are in the header comments of [src/signing/hands.js](src/signing/hands.j
 
 Two safety nets run last every frame, on top of the signs and the hand-tuned offsets, so a new sign can't break the model:
 
-- **Finger joint limits** ([src/signing/limits.js](src/signing/limits.js), ranges in `limits.finger` of shared.json): every finger joint is clamped in curl (no bending backwards), spread and twist. The ranges are wide enough that none of the existing letters changes; they only catch extreme values.
+- **Finger joint limits** ([src/signing/limits.js](src/signing/limits.js), ranges in `finger` of [limits.json](src/data/limits.json)): every finger joint is clamped in curl (no bending backwards), spread and twist. The ranges are wide enough that none of the existing letters changes; they only catch extreme values.
 - **Body collision** ([src/signing/body.js](src/signing/body.js), shape in `rigs.<rig>.body` of shared.json): the trunk is a stack of ellipses and the head a sphere. If the wrist, palm or fingers are inside, the hand is moved out (keeping its orientation) and the elbow is turned about the shoulder-wrist line until the arm is clear. A rig without a `body` shape has no collision.
 
 `?colliders=1` draws the shape, `?guard=0` turns the collision off. Not covered: hand against hand, the thumb's joint limits, wrist and elbow angle limits.

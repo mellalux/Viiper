@@ -3,11 +3,15 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { askPin } from './pin.js';
+import { makeDraggable } from './draggable.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
+import { mirrorRange, axisMax } from '../signing/limits.js';
 
-// The fine-tuning window (dev server only): one horizontal dock along the bottom of the screen.
+// The fine-tuning window (dev server only): one horizontal dock along the bottom of the screen, and apart from it the limits editor
+// ("Luu piirid", opened with its own button): a floating window where the model stands in its rest pose, every other panel but
+// "Vaade" is gone, the bones turn freely in any direction and their rotation limits (limits.json) are set and saved.
 //   top    blocks side by side: pick a sign (search), the hand's pose, the fingers, a single bone, copying between signs
 //   bottom the timeline of the sign's motion: one track per channel, the playhead, the points of the path
 // What makes a sign (where the hand is held, the finger curls, the motion path) is edited per sign and hand and saved in the
@@ -15,12 +19,16 @@ import * as defs from '../signing/signDefs.js';
 // shape keys are tweaks (tweaks.js). Edits apply per sign (face, signing arm), only to the standby pose (the other arm) or
 // always (body). Both kinds are kept in localStorage as a working copy until "Salvesta faili" writes them into
 // src/data/fingerspelling.json / words.json (dev server only, behind the save PIN).
+// A bone can also get rotation limits (limits.js): min / max per axis, the same for every sign, saved in src/data/limits.json
+// and kept as a working copy the same way. The limits clamp the final pose of the bone, whatever poses it.
 const STORAGE_KEY = 'viiper.tweaks';
+const LIMITS_KEY = 'viiper.boneLimits';
 const LEGACY_KEYS = ['viiper.fingerTweaks', 'viiper.boneEditor', 'viiper.boneEditor.collapsed', 'viiper.signEditor', 'viiper.signEditor.collapsed']; // earlier versions' storage; no longer read, just removed
 const STANDBY_KEY = 'viiper.standby';
-const UI_KEY = 'viiper.fineTuner'; // { open, height }
+const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed }
 const TWEAKS_URL = '/__save-sign-tweaks';
 const DEFS_URL = '/__save-sign-defs';
+const LIMITS_URL = '/__save-limits';
 
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
@@ -51,6 +59,9 @@ const css = `
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px);
 }
 .fd-launch:hover { background: #38383f; }
+.fd-launch--bones { top: 56px; }
+/* the limits editor shows nothing but its own window and the view panel */
+body.fd-limits .letter-panel, body.fd-limits .text-panel, body.fd-limits .sign-open, body.fd-limits .sign-box, body.fd-limits .fd-launch, body.fd-limits .fd:not(.fd-win) { display: none !important; }
 .fd-launch[hidden] { display: none; }
 body.fd-open .letter-panel { display: none; } /* the dock has its own sign list; the bottom of the screen is the dock's */
 
@@ -61,14 +72,14 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
 }
 .fd[hidden] { display: none; }
-.fd button, .fd select, .fd input[type=number], .fd input[type=search] {
+.fd button, .fd select, .fd input[type=number], .fd input[type=search], .fd input[type=text] {
   font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px;
 }
 .fd button { padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .fd button:hover:not(:disabled) { background: #38383f; }
 .fd button:disabled, .fd input:disabled, .fd select:disabled { opacity: 0.4; cursor: default; }
 .fd select { min-width: 0; padding: 3px 6px; }
-.fd input[type=number], .fd input[type=search] { min-width: 0; padding: 3px 6px; box-sizing: border-box; }
+.fd input[type=number], .fd input[type=search], .fd input[type=text] { min-width: 0; padding: 3px 6px; box-sizing: border-box; }
 .fd button.fd__on { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
 .fd button.fd__primary { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
 .fd button.fd__primary:hover:not(:disabled), .fd button.fd__on:hover:not(:disabled) { background: #38b07d; }
@@ -96,7 +107,13 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__slider--axis { grid-template-columns: 14px 1fr 38px; }
 .fd__slider input { width: 100%; margin: 0; }
 .fd__slider output { text-align: right; font-variant-numeric: tabular-nums; color: #9a9aa5; font-size: 12px; }
+.fd__lim { display: grid; grid-template-columns: 14px 52px 52px 24px 24px minmax(0, 1fr); align-items: center; gap: 4px; }
+.fd__lim input { width: 100%; }
+.fd__lim button { padding: 3px 0; }
+.fd__lim output { text-align: right; font-variant-numeric: tabular-nums; color: #9a9aa5; font-size: 12px; }
+.fd__lim output.fd__atlimit { color: #ff7a7a; font-weight: 600; }
 .fd__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 18px; }
+.fd__col[hidden] { display: none; }
 .fd__col { display: grid; gap: 3px; align-content: start; }
 .fd__fingers { display: grid; grid-template-columns: 92px repeat(3, minmax(0, 1fr)); gap: 3px 10px; align-items: center; }
 .fd__fingers > .fd__sub { margin: 0; }
@@ -116,6 +133,16 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__empty { margin: auto 2px; color: #7a7a85; font-size: 12px; }
 
 .fd__tl { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+/* the bones' floating window: the dock's look, but a movable panel (draggable.js) instead of a strip along the bottom */
+.fd.fd-win { left: auto; right: auto; bottom: auto; top: 0; width: 380px; z-index: 13; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 12px; box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55); overflow: hidden; }
+.fd-win .fd__bar { cursor: grab; gap: 8px; }
+.fd-win.is-dragging .fd__bar { cursor: grabbing; }
+.fd-win .fd__block { width: auto; max-height: calc(100vh - 150px); border: none; background: none; }
+.fd__tltop { display: flex; align-items: flex-start; gap: 8px; }
+.fd__tltop > button { flex: none; margin-top: 1px; }
+.fd__tltop > .fd__tlhead { flex: 1; min-width: 0; }
+.fd__tl--collapsed [data-role="tl-body"] { display: none; }
+.fd--noblocks .fd__blocks, .fd--noblocks .fd__resize { display: none; }
 .fd__tlhead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-height: 26px; }
 .fd__tlhead label { display: flex; align-items: center; gap: 5px; }
 .fd__tlhead input[type=number] { width: 62px; }
@@ -154,6 +181,8 @@ const trim = (pt) => {
 
 /**
  * @param tweaks       the bone / shape-key tweaks (tweaks.js)
+ * @param boneLimits   the rotation limits of single bones (limits.js)
+ * @param fingerLimits the curl / spread / twist limits of the finger joints (limits.js; null on a rig without fingers)
  * @param letters      every sign key (letters, words, STANDBY), in the order they are listed
  * @param show         (key) => the character shows that sign right now (no smoothing, the motion held where it is)
  * @param play         (key) => start the sign over, motion playing
@@ -165,7 +194,8 @@ const trim = (pt) => {
  * @param info         () => text with the arms' current state (the wrist twist)
  * @param onLayout     (px) => height of the dock when open, 0 when closed: the scene moves up to stay above it
  */
-export function createFineTuner({ scene, camera, controls, dom, tweaks, letters, show, play, freeze, select, onStandby, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
+export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimits, fingerLimits = null, letters, show, play, freeze, select, onStandby, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
+  letters = [...letters]; // signs added in the editor are appended
   const readLS = (k) => {
     try {
       return JSON.parse(localStorage.getItem(k));
@@ -212,6 +242,31 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     return out;
   };
 
+  // ---------------------------------------------------------------- working copy of the limits (same idea): single bones and finger joints
+  const limitsExport = () => ({ bones: boneLimits.export(), finger: fingerLimits?.export() ?? {} });
+  const limitsLoad = (d) => {
+    boneLimits.load(d?.bones);
+    fingerLimits?.load(d?.finger);
+  };
+  let limitsFileState = canon(limitsExport());
+  let limitsFileData = JSON.parse(limitsFileState);
+  let limitsBase = fingerprint(limitsFileState);
+  const workingLimits = readLS(LIMITS_KEY);
+  if (workingLimits) {
+    if (workingLimits.base === limitsBase && workingLimits.data) limitsLoad(workingLimits.data);
+    else console.info('Dropped a stale working copy of the limits (limits.json has changed since it was made).');
+  }
+  try {
+    if (workingLimits?.base !== limitsBase) localStorage.removeItem(LIMITS_KEY);
+  } catch {}
+  const limitsChanged = () => canon(limitsExport()) !== limitsFileState;
+  const saveLimits = () => {
+    try {
+      if (!limitsChanged()) localStorage.removeItem(LIMITS_KEY);
+      else localStorage.setItem(LIMITS_KEY, JSON.stringify({ base: limitsBase, data: limitsExport() }));
+    } catch {}
+  };
+
   let standbyOn = localStorage.getItem(STANDBY_KEY) !== '0';
 
   // ---------------------------------------------------------------- DOM
@@ -226,6 +281,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     <div class="fd__resize" title="Muuda akna kõrgust"></div>
     <div class="fd__bar">
       <span class="fd__title">Peenhäälestus</span>
+      <button data-role="blocks-toggle" title="Näita / peida seadete plokid (märk, käe asend, sõrmed, luu, kopeerimine). Sama teeb topeltklõps ribal"></button>
       <span class="fd__current" data-role="current"></span>
       <span class="fd__status" data-role="status"></span>
       <button data-role="undo" title="Võta viimane muudatus tagasi (Ctrl+Z)">↶ Tagasi</button>
@@ -239,21 +295,43 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       <section class="fd__block" data-role="b-sign" style="width: 260px"></section>
       <section class="fd__block" data-role="b-orient" style="width: 600px"></section>
       <section class="fd__block" data-role="b-fingers" style="width: 460px"></section>
-      <section class="fd__block" data-role="b-bone" style="width: 300px"></section>
+      <section class="fd__block" data-role="b-bone" style="width: 340px"></section>
       <section class="fd__block" data-role="b-copy" style="width: 220px"></section>
     </div>
     <div class="fd__tl">
-      <div class="fd__tlhead" data-role="tl-head"></div>
+      <div class="fd__tltop">
+        <button data-role="tl-toggle" title="Näita / peida liikumise ajajoon. Sama teeb topeltklõps ajajoone päisel"></button>
+        <div class="fd__tlhead" data-role="tl-head"></div>
+      </div>
       <div data-role="tl-body"></div>
     </div>`;
-  document.body.append(launch, dock);
+  const bonesLaunch = el('button', 'fd-launch fd-launch--bones', 'Luu piirid');
+  bonesLaunch.title = 'Luude pöördepiirid: mudel puhkeasendis, luid saab piiranguteta pöörata ja piirid salvestada (muud paneelid peidetakse)';
+  // the limits editor's window: a title bar (save, close) and the block with the bone, the free rotation and the limits
+  const bonesWin = el('div', 'fd fd-win');
+  bonesWin.hidden = true;
+  const bonesBar = el('div', 'fd__bar');
+  bonesBar.append(el('span', 'fd__title', 'Luu piirid'));
+  const limSave = el('button', 'fd__primary', 'Salvesta piirid');
+  limSave.title = 'Kirjutab piirid faili limits.json (ainult dev-serveris)';
+  const bonesClose = el('button', '', '✕');
+  bonesClose.title = 'Sulge (mudel ja paneelid tulevad tagasi)';
+  const blockLim = el('section', 'fd__block');
+  bonesWin.append(bonesBar, blockLim);
+  document.body.append(launch, bonesLaunch, dock, bonesWin);
+  makeDraggable(bonesWin, bonesBar, 'viiper.limitsWin', () => [Math.max(0, window.innerWidth - 400), 60]);
+  bonesBar.append(limSave, bonesClose); // (after the panel's own collapse button, so that the buttons are last)
   const $ = (role) => dock.querySelector(`[data-role="${role}"]`);
   // typing in the fields must not reach the letter shortcuts
-  dock.addEventListener('keydown', (e) => e.stopPropagation());
-  dock.addEventListener('keyup', (e) => e.stopPropagation());
+  for (const root of [dock, bonesWin]) {
+    root.addEventListener('keydown', (e) => e.stopPropagation());
+    root.addEventListener('keyup', (e) => e.stopPropagation());
+  }
   // letting go of a slider (change) or the focus leaving it or a field (focusout) ends the gesture: the next edit is a new undo step
-  dock.addEventListener('change', () => endGesture());
-  dock.addEventListener('focusout', () => endGesture());
+  for (const root of [dock, bonesWin]) {
+    root.addEventListener('change', () => endGesture());
+    root.addEventListener('focusout', () => endGesture());
+  }
 
   const statusEl = $('status');
   const undoBtn = $('undo');
@@ -267,11 +345,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   const blockBone = $('b-bone');
   const blockCopy = $('b-copy');
   const tlHead = $('tl-head');
+  const tlBox = dock.querySelector('.fd__tl');
+  const tlToggle = $('tl-toggle');
+  const blocksToggle = $('blocks-toggle');
   const tlBody = $('tl-body');
   tlBody.style.minHeight = `${TL.ruler + TL.row * CHANNELS.length + 4}px`; // the same height with or without a motion, so the blocks above don't jump
 
   // ---------------------------------------------------------------- state
-  let isOpen = false;
+  let isOpen = false; // the dock
+  let limitsMode = false; // the limits editor
+  let dockWasOpen = false; // (the dock comes back when the editor is closed)
+  const active = () => isOpen || limitsMode; // either one: markers shown, the sign held still
   let key = null; // the sign being edited
   let hand = 'R'; // which hand's definition the middle blocks and the timeline edit
   let scrub = 0; // where on its path the motion is held while editing (0..1)
@@ -299,11 +383,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const parts = [];
     if (signs.length) parts.push(`viipe seaded: ${signs.join(', ')}`);
     if (bones.length) parts.push(`luud: ${bones.join(', ')}`);
+    if (limitsChanged()) parts.push('luude piirid');
+    updateLimStatus();
     statusEl.textContent = parts.length ? `Salvestamata – ${parts.join(' · ')}` : 'Salvestamata muudatusi pole.';
     statusEl.classList.toggle('fd__status--dirty', parts.length > 0);
     statusEl.title = statusEl.textContent;
     saveBtn.disabled = !parts.length;
     resetSignBtn.disabled = !key || !dirtySigns.has(key);
+    delBtn.hidden = !key || !defs.isNew(key);
     refreshChips(new Set([...signs, ...bones]));
   }
   /** A sign's definition changed (or its motion): store it, show it, update the marks. `id` names a continuous gesture (see commit). */
@@ -321,6 +408,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     commit(id);
     updateStatus();
   }
+  function limitsEdited(id) {
+    saveLimits();
+    commit(id);
+    updateStatus();
+  }
 
   // ---------------------------------------------------------------- undo / redo
   // Every edit, sign definitions and bone tweaks alike, leaves a snapshot of the whole working copy (the changed signs'
@@ -328,7 +420,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   // Edits with the same `id` in a row (a slider being dragged, a number being typed) count as one step, however long they
   // take: the gesture ends when the slider is let go or the field loses focus (see endGesture). No id: one step each.
   const HISTORY_MAX = 200;
-  const snapshot = () => canon({ defs: Object.fromEntries([...dirtySigns].map((k) => [k, defs.currentDef(k)])), tweaks: tweaks.export() });
+  const snapshot = () => canon({ defs: Object.fromEntries([...dirtySigns].map((k) => [k, defs.currentDef(k)])), tweaks: tweaks.export(), limits: limitsExport() });
   const undoStack = []; // { snap, key, hand }: the state before the edit, and where it was made
   const redoStack = [];
   let last = null; // the state after the latest edit
@@ -366,15 +458,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     stopPlay(false);
     for (const k of new Set([...dirtySigns, ...Object.keys(s.defs)])) defs.applyDef(k, s.defs[k] ?? defs.baselineDef(k));
     tweaks.load(s.tweaks);
+    limitsLoad(s.limits);
     recheckAll();
     defs.persist();
     saveTweaks();
+    saveLimits();
     last = entry.snap;
     endGesture();
     if (entry.key && entry.key !== key) pick(entry.key); // show what is being undone
     hand = entry.hand === 'L' && !sign()?.left ? 'R' : entry.hand;
     renderHand();
-    refreshBone();
+    refreshAny();
     show(key);
     freeze(scrub);
     updateStatus();
@@ -388,7 +482,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   window.addEventListener(
     'keydown',
     (e) => {
-      if (!isOpen || !(e.ctrlKey || e.metaKey) || e.altKey || e.target.type === 'search') return;
+      if (!active() || !(e.ctrlKey || e.metaKey) || e.altKey || e.target.type === 'search') return;
       const k = e.key.toLowerCase();
       if (k !== 'z' && k !== 'y') return;
       e.preventDefault();
@@ -403,15 +497,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   const chipBox = el('div', 'fd__chips');
   const chips = new Map(); // key -> button
   const folded = letters.map((l) => [l, fold(letterLabel(l))]);
-  for (const l of letters) {
+  const noMatch = el('div', 'fd__empty', 'Midagi ei leitud');
+  noMatch.hidden = true;
+  const makeChip = (l) => {
     const b = el('button', `fd__chip${l.length > 1 && l !== STANDBY ? ' fd__chip--word' : ''}`, letterLabel(l));
     b.addEventListener('click', () => pick(l));
     chips.set(l, b);
-    chipBox.appendChild(b);
-  }
-  const noMatch = el('div', 'fd__empty', 'Midagi ei leitud');
-  noMatch.hidden = true;
+    chipBox.insertBefore(b, noMatch);
+  };
   chipBox.appendChild(noMatch);
+  letters.forEach(makeChip);
   let hint = null; // the chip Enter picks
 
   function filterChips() {
@@ -461,7 +556,64 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     writeLS(STANDBY_KEY, standbyBox.checked ? '1' : '0');
     onStandby(standbyBox.checked);
   });
-  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, handTabs, standbyRow);
+  // a new word sign: its name is what gets typed to show it; it starts as a flat hand, or as a copy of the sign being edited
+  const newName = input('text', { placeholder: 'Uue märgi nimi (nt KASS)…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
+  const newCopy = input('checkbox', { checked: false });
+  const newBtn = el('button', '', '＋ Lisa märk');
+  const delBtn = el('button', '', 'Kustuta see uus märk');
+  delBtn.title = 'Eemaldab märgi, mida pole veel faili salvestatud';
+  delBtn.hidden = true;
+  const newNote = el('div', 'fd__note');
+  const newCopyRow = el('label', 'fd__row');
+  newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
+  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, handTabs, standbyRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
+
+  function createSign() {
+    const name = defs.normalizeName(newName.value);
+    const problem = defs.checkName(name);
+    if (problem) return void (newNote.textContent = problem);
+    const from = newCopy.checked && key && key !== STANDBY ? key : null;
+    defs.addSign(name, from ? defs.currentDef(from) : undefined);
+    if (from) tweaks.copy(from, name, items.map((x) => x.name)); // its bone tweaks come along
+    letters.push(name);
+    folded.push([name, fold(name)]);
+    makeChip(name);
+    copyFrom.add(new Option(name, name));
+    newName.value = '';
+    search.value = '';
+    saveTweaks();
+    defs.persist();
+    filterChips();
+    pick(name);
+    recheckAll();
+    clearHistory(); // the older steps know nothing of this sign
+    updateStatus();
+    newNote.textContent = `Märk ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta faili kirjutab selle faili words.json.`;
+  }
+  function deleteSign() {
+    const gone = key;
+    if (!gone || !defs.isNew(gone)) return;
+    if (!confirm(`Kustutan märgi ${gone}? Seda pole veel failis, nii et see läheb päriselt kaduma.`)) return;
+    const next = letters.find((l) => l !== gone && l !== STANDBY);
+    pick(next); // away from it first
+    tweaks.reset(gone, items.map((x) => x.name));
+    defs.removeSign(gone);
+    letters.splice(letters.indexOf(gone), 1);
+    folded.splice(folded.findIndex(([l]) => l === gone), 1);
+    chips.get(gone)?.remove();
+    chips.delete(gone);
+    copyFrom.querySelector(`option[value="${CSS.escape(gone)}"]`)?.remove();
+    saveTweaks();
+    defs.persist();
+    recheckAll();
+    filterChips();
+    clearHistory();
+    updateStatus();
+    newNote.textContent = `Märk ${gone} kustutatud.`;
+  }
+  newBtn.addEventListener('click', createSign);
+  delBtn.addEventListener('click', deleteSign);
+  newName.addEventListener('keydown', (e) => e.key === 'Enter' && createSign());
 
   function setHand(next) {
     hand = next;
@@ -710,6 +862,32 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     row.append(text, range, out);
     return { row, text, range, out, i };
   });
+  // rotation limits of the selected bone: per axis a min and a max (blank = free), buttons that take the bone's current angle
+  const limitsOnBox = input('checkbox', { checked: true });
+  limitsOnBox.title = 'Välja lülitatuna saab luu vabalt poosida (piirid jäävad alles)';
+  const limitRow = (axis, i, max, label, title) => {
+    const lo = input('number', { min: -max, max, step: 1, placeholder: 'min' });
+    const hi = input('number', { min: -max, max, step: 1, placeholder: 'max' });
+    const setLo = el('button', '', '⇤');
+    const setHi = el('button', '', '⇥');
+    setLo.title = 'Minimaalne piir = praegune nurk';
+    setHi.title = 'Maksimaalne piir = praegune nurk';
+    const now = el('output', '', '0°');
+    const row = el('div', 'fd__lim');
+    row.title = title;
+    row.append(el('span', '', label), lo, hi, setLo, setHi, now);
+    return { axis, i, row, lo, hi, setLo, setHi, now };
+  };
+  const limitRows = AXES.map((axis, i) => limitRow(axis, i, axisMax(axis), axis.toUpperCase(), 'Luu pööre ümber telje ' + axis.toUpperCase()));
+  // a finger joint (mcp / pip / dip): the limits are shared by the same joint of every finger and both hands, in curl / spread / twist
+  const FINGER_AXES = [['curl', 'P', 'Painutus (+ peopesa poole)'], ['spread', 'L', 'Laialiminek (+ väikese sõrme poole)'], ['twist', 'V', 'Väänd sõrme enda telje ümber']];
+  const fingerHead = el('div', 'fd__sub');
+  const fingerRows = FINGER_AXES.map(([axis, label, title], i) => limitRow(axis, i, 180, label, title));
+  const fingerBox = el('div', 'fd__col');
+  fingerBox.hidden = true;
+  fingerBox.append(fingerHead, ...fingerRows.map((r) => r.row), el('div', 'fd__note', 'P = painutus, L = laialiminek, V = väänd. Kehtib selle liigese kõigile sõrmedele, mõlemal käel.'));
+  const clearLimitsBtn = el('button', '', 'Eemalda luu piirid');
+  const openLimitsBtn = el('button', '', 'Muuda piire…');
   const resetBoneBtn = el('button', '', 'Luu nulli');
   const resetGroupBtn = el('button', '', 'Rühma nulli');
   const copyJsonBtn = el('button', '', 'Kopeeri JSON');
@@ -738,6 +916,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       boneLabel,
       ...boneSliders.map((s) => s.row),
       buttons,
+      row(el('span', '', 'Piirid kehtivad'), limitsOnBox),
+      openLimitsBtn,
+      el('div', 'fd__note', 'Piirid (kõigile märkidele) määratakse eraldi: „Muuda piire“ näitab mudelit puhkeasendis, kus luid saab piiranguteta pöörata ja piire salvestada.'),
     );
   }
   for (const g of GROUPS) if (g.id !== 'shapes' || tweaks.shapes.length) groupSel.add(new Option(g.label, g.id));
@@ -791,14 +972,69 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     obj.geometry.instanceCount = n;
   };
 
+  // The arm's twist helper bones (CC_Base_R_UpperarmTwist01 ...) only twist the skin between the joints: they turn about their own
+  // long axis (Y); any other turn just crumples the skin and moves nothing, so the limits editor locks X and Z for them.
+  const isTwist = (e) => !!e && !e.shape && /Twist\d*$/i.test(e.name);
+  const locked = (e, axisIndex) => isTwist(e) && axisIndex !== 1;
   let selected = -1;
-  const sel = () => (selected >= 0 ? items[selected] : null);
+  let lSelected = -1; // the limits editor's own selection
+  const sel = () => {
+    const i = limitsMode ? lSelected : selected;
+    return i >= 0 ? items[i] : null;
+  };
   const editKey = () => tweaks.keyOf(sel().name, key);
 
   const fillBones = () => {
     boneSel.replaceChildren(new Option('–', ''));
     items.forEach((e, i) => e.group === groupSel.value && boneSel.add(new Option(e.name, String(i))));
   };
+
+  /** The limit fields of the selected bone (not while a shape key is selected: it has no rotation). */
+  function refreshLimits() {
+    const e = sel();
+    const usable = !!e && !e.shape;
+    const range = (usable && boneLimits.get(e.name)) || {};
+    limitRows.forEach(({ axis, lo, hi, setLo, setHi }) => {
+      // an end at the full turn is the same as no limit on that side: shown blank
+      const [min, max] = range[axis] ?? [];
+      lo.value = min > -axisMax(axis) ? min : '';
+      hi.value = max < axisMax(axis) ? max : '';
+      for (const c of [lo, hi, setLo, setHi]) c.disabled = !usable || locked(e, AXES.indexOf(axis));
+    });
+    clearLimitsBtn.disabled = !usable || !boneLimits.get(e.name);
+    const joint = usable ? fingerLimits?.jointOf(e.name) : null;
+    fingerBox.hidden = !joint;
+    if (joint) {
+      fingerHead.textContent = 'Sõrmeliigese piirid – kõigile märkidele: ' + joint.toUpperCase();
+      const fr = fingerLimits.get(joint) ?? {};
+      fingerRows.forEach(({ axis, lo, hi }) => {
+        const [min, max] = fr[axis] ?? [];
+        lo.value = min > -180 ? min : '';
+        hi.value = max < 180 ? max : '';
+      });
+    }
+  }
+
+  // A rotation slider that is being moved stops where the limits hold the bone: the limits clamp the final pose, so when they had to
+  // turn the bone back the slider's value goes back by that much and the slider's end is set there until it is let go.
+  // (A bone that nothing else poses needs none of this: its slider simply ends at its limit, see refreshBone.)
+  const adjust = { bone: null, i: -1, until: 0 }; // the slider being moved: its bone, axis, and until when
+  const caps = [{}, {}, {}]; // per axis, { min } or { max }: where the slider was held
+  const endAdjust = () => {
+    if (adjust.until === Infinity) adjust.until = performance.now() + 300;
+  };
+  window.addEventListener('pointerup', endAdjust);
+  window.addEventListener('pointercancel', endAdjust);
+  /** How far the limits turned the selected bone back at the last frame, degrees per Euler axis (x, y, z). */
+  function overflow(e) {
+    const out = [...boneLimits.excess(e.name)];
+    const axes = fingerLimits?.axes(e.name);
+    if (axes) {
+      const f = fingerLimits.excess(e.name);
+      ['curl', 'spread', 'twist'].forEach((n, k) => (out[axes[n][0]] += f[k] * axes[n][1]));
+    }
+    return out;
+  }
 
   const refreshBone = () => {
     const e = sel();
@@ -815,9 +1051,15 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
         out.textContent = i === 0 ? val.w.toFixed(2) : '';
         return;
       }
-      Object.assign(range, { min: -ROT_RANGE, max: ROT_RANGE, step: 1, value: val.rot[i] });
+      // a bone that nothing else poses turns exactly as far as its slider says, so its limits are the slider's ends;
+      // the arms and fingers are posed by the hand code first and the slider only adds to that, so there the limits clamp the result
+      const lim = limitsOnBox.checked && e && !e.drivesRot ? boneLimits.get(e.name)?.[AXES[i]] : null;
+      const lowest = Math.max(-ROT_RANGE, lim?.[0] ?? -ROT_RANGE, caps[i].min ?? -ROT_RANGE);
+      const highest = Math.min(ROT_RANGE, lim?.[1] ?? ROT_RANGE, caps[i].max ?? ROT_RANGE);
+      Object.assign(range, { min: Math.min(lowest, val.rot[i]), max: Math.max(highest, val.rot[i]), step: 1, value: val.rot[i] });
       out.textContent = `${val.rot[i]}°`;
     });
+    refreshLimits();
     resetBoneBtn.disabled = !e || !key;
     mirrorBox.disabled = !e?.mirrorName;
     boneSel.value = e ? String(selected) : '';
@@ -828,12 +1070,19 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     }
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
-      m.material = i === selected ? pickedMat : idleMat;
-      m.visible = bones[i].group === groupSel.value;
+      m.material = i === (limitsMode ? lSelected : selected) ? pickedMat : idleMat;
+      m.visible = bones[i].group === (limitsMode ? lGroup.value : groupSel.value);
     });
   };
   const selectBone = (i) => {
+    if (limitsMode) {
+      lSelected = i;
+      refreshWin();
+      return;
+    }
     selected = i;
+    adjust.bone = null;
+    caps.forEach((c) => (c.min = c.max = undefined));
     refreshBone();
   };
 
@@ -868,15 +1117,104 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
     bonesChanged(id);
   };
-  boneSliders.forEach(({ range }) =>
+  boneSliders.forEach(({ range, i }) => {
+    range.addEventListener('pointerdown', () => Object.assign(adjust, { bone: sel(), i, until: Infinity }));
     range.addEventListener('input', () => {
       const e = sel();
       if (!e || !key) return;
+      if (!e.shape) Object.assign(adjust, { bone: e, i, until: adjust.until === Infinity ? Infinity : performance.now() + 300 });
       const x = boneSliders.map((s) => +s.range.value);
       writeBone(e, e.shape ? { w: x[0] } : { rot: x, pos: tweaks.get(editKey(), e.name).pos }, `bone:${e.name}:${key}`); // the position offset stays as it is
       refreshBone();
-    }),
-  );
+    });
+  });
+  // The limits: stored for the bone, and for its mirror twin when the mirror box is ticked. A blank side stays free (the full turn).
+  const orderRange = (lo, hi, side) => (lo !== null && hi !== null && lo > hi ? (side === 'lo' ? [lo, lo] : [hi, hi]) : [lo, hi]); // (the side that was just set wins)
+  const setLimit = (e, axis, lo, hi, id, side) => {
+    [lo, hi] = orderRange(lo, hi, side);
+    const range = boneLimits.get(e.name) ?? {};
+    if (lo === null && hi === null) delete range[axis];
+    else range[axis] = [lo ?? -axisMax(axis), hi ?? axisMax(axis)];
+    boneLimits.set(e.name, range);
+    if (mirrorOn() && e.mirrorName) boneLimits.set(e.mirrorName, mirrorRange(boneLimits.get(e.name)));
+    limitsEdited(id);
+    refreshAny();
+  };
+  const num = (field) => (field.value === '' || !Number.isFinite(+field.value) ? null : +field.value);
+  // In the limits editor a limit that is typed in turns the bone (and its slider) to that angle, so that the limit can be seen.
+  const turnTo = (e, i, angle) => {
+    if (!limitsMode || angle === null) return;
+    const rot = boneLimits.pose(e.name);
+    const reach = i === 1 ? 90 : 180; // (Euler Y only goes to +-90)
+    rot[i] = Math.min(Math.max(angle, -reach), reach);
+    boneLimits.setPose(e.name, rot);
+    if (lMirror.checked && e.mirrorName) boneLimits.setPose(e.mirrorName, [rot[0], -rot[1], -rot[2]]);
+  };
+  limitRows.forEach(({ axis, i, lo, hi, setLo, setHi }) => {
+    const edit = (field) => () => {
+      const e = sel();
+      if (!e || e.shape) return;
+      const typed = num(field);
+      turnTo(e, i, typed);
+      setLimit(e, axis, num(lo), num(hi), `limit:${e.name}:${axis}`, field === lo ? 'lo' : 'hi');
+    };
+    lo.addEventListener('change', edit(lo));
+    hi.addEventListener('change', edit(hi));
+    const take = (side) => () => {
+      const e = sel();
+      if (!e || e.shape) return;
+      const angle = Math.round(boneLimits.current(e.name)[i] * 10) / 10;
+      const now = boneLimits.get(e.name)?.[axis];
+      setLimit(e, axis, side === 'lo' ? angle : (now?.[0] ?? null), side === 'hi' ? angle : (now?.[1] ?? null), undefined, side);
+    };
+    setLo.addEventListener('click', take('lo'));
+    setHi.addEventListener('click', take('hi'));
+  });
+  // the finger joint's limits: one table per joint kind, edited from whichever finger bone is selected
+  const setFingerLimit = (joint, axis, lo, hi, id, side) => {
+    [lo, hi] = orderRange(lo, hi, side);
+    const range = fingerLimits.get(joint) ?? {};
+    if (lo === null && hi === null) delete range[axis];
+    else range[axis] = [lo ?? -180, hi ?? 180];
+    fingerLimits.set(joint, range);
+    limitsEdited(id);
+    refreshAny();
+  };
+  fingerRows.forEach(({ axis, i, lo, hi, setLo, setHi }) => {
+    const joint = () => (sel() && !sel().shape ? fingerLimits?.jointOf(sel().name) : null);
+    const edit = (field) => () => {
+      const j = joint();
+      if (!j) return;
+      const typed = num(field);
+      const map = fingerLimits.axes(sel().name)?.[axis]; // [Euler axis, sign]: the bone is turned about that axis to the typed angle
+      if (typed !== null && map) turnTo(sel(), map[0], typed * map[1]);
+      setFingerLimit(j, axis, num(lo), num(hi), `fingerlimit:${j}:${axis}`, field === lo ? 'lo' : 'hi');
+    };
+    lo.addEventListener('change', edit(lo));
+    hi.addEventListener('change', edit(hi));
+    const take = (side) => () => {
+      const j = joint();
+      if (!j) return;
+      const angle = Math.round(fingerLimits.current(sel().name)[i] * 10) / 10;
+      const now = fingerLimits.get(j)?.[axis];
+      setFingerLimit(j, axis, side === 'lo' ? angle : (now?.[0] ?? null), side === 'hi' ? angle : (now?.[1] ?? null), undefined, side);
+    };
+    setLo.addEventListener('click', take('lo'));
+    setHi.addEventListener('click', take('hi'));
+  });
+  limitsOnBox.addEventListener('change', () => {
+    boneLimits.enabled = limitsOnBox.checked;
+    if (fingerLimits) fingerLimits.enabled = limitsOnBox.checked;
+    refreshBone();
+  });
+  clearLimitsBtn.addEventListener('click', () => {
+    const e = sel();
+    if (!e) return;
+    boneLimits.set(e.name, null);
+    if (mirrorOn() && e.mirrorName) boneLimits.set(e.mirrorName, null);
+    limitsEdited();
+    refreshAny();
+  });
   resetBoneBtn.addEventListener('click', () => {
     const e = sel();
     if (!e || !key) return;
@@ -901,13 +1239,218 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     setTimeout(() => (copyJsonBtn.textContent = 'Kopeeri JSON'), 1500);
   });
 
+  // ---------------------------------------------------------------- the limits editor ("Luu piirid")
+  // Opening it shows the model in its rest pose (boneLimits.editing: main.js stops signing and puts every bone back to rest each
+  // frame), hides every panel but "Vaade" and the dock, and lets the bones be turned by hand in any direction, without limits (unless
+  // the preview box is ticked). The angle a bone is at becomes its min or max with the arrow buttons; only the limits are saved
+  // (limits.json), the rotations tried here are gone when the editor closes.
+  const lGroup = document.createElement('select');
+  const lBone = document.createElement('select');
+  const lFocus = el('button', '', 'Fookus');
+  lFocus.title = 'Too kaamera valitud luu juurde';
+  const lMirror = input('checkbox', { checked: true });
+  const lPreview = input('checkbox', { checked: false });
+  lPreview.title = 'Kärbib näidatud poosi valitud piiridega, et näha mida need teevad';
+  const lLabel = el('div', 'fd__note');
+  const limStatus = el('div', 'fd__note');
+  const lSliders = SLIDERS.map((label, i) => {
+    const max = i === 1 ? 90 : 180; // (Euler Y only reaches +-90 in this order; X and Z cover the rest)
+    const row = el('label', 'fd__slider');
+    const range = input('range', { min: -max, max, step: 1, value: 0 });
+    const out = el('output', '', '0°');
+    row.append(el('span', '', label), range, out);
+    return { row, range, out, i };
+  });
+  const lResetBone = el('button', '', 'Luu nulli');
+  const lResetAll = el('button', '', 'Kõik luud nulli');
+  const limReload = el('button', '', 'Lae piirid failist');
+  for (const g of GROUPS) if (g.id !== 'shapes') lGroup.add(new Option(g.label, g.id)); // (shape keys do not turn)
+  lGroup.value = 'right';
+  {
+    const row = (...kids) => {
+      const r = el('label', 'fd__row');
+      r.append(...kids);
+      return r;
+    };
+    const pickRow = el('div', 'fd__row');
+    const pickLabel = el('label', 'fd__row');
+    pickLabel.style.flex = '1';
+    pickLabel.append(el('span', '', 'Luu'), lBone);
+    lBone.style.flex = '1';
+    lBone.style.maxWidth = 'none';
+    lFocus.style.flex = 'none';
+    pickRow.append(pickLabel, lFocus);
+    const poseButtons = el('div', 'fd__buttons');
+    poseButtons.append(lResetBone, lResetAll);
+    const fileButtons = el('div', 'fd__buttons');
+    fileButtons.append(limReload);
+    blockLim.append(
+      limStatus,
+      el('div', 'fd__h', 'Luu pööramine (piiranguteta)'),
+      row(el('span', '', 'Rühm'), lGroup),
+      pickRow,
+      row(el('span', '', 'Peegelda vastasküljele'), lMirror),
+      lLabel,
+      ...lSliders.map((s) => s.row),
+      poseButtons,
+      el('div', 'fd__h', 'Pöörde piirid – kõigile märkidele (° puhkeasendist)'),
+      row(el('span', '', 'Kärbi piiridega (eelvaade)'), lPreview),
+      ...limitRows.map((r) => r.row),
+      clearLimitsBtn,
+      fingerBox,
+      el('div', 'fd__note', '⇤ / ⇥ võtavad piiriks luu praeguse nurga. Punane nurk: eelvaates hoiab piir luud. Tühi väli = piiranguta. Pööramine ei salvestu, piirid salvestuvad nupuga „Salvesta piirid“.'),
+      fileButtons,
+    );
+  }
+
+  const mirrorOn = () => (limitsMode ? lMirror.checked : mirrorBox.checked);
+  function fillWinBones() {
+    lBone.replaceChildren(new Option('–', ''));
+    items.forEach((e, i) => !e.shape && e.group === lGroup.value && lBone.add(new Option(e.name + (isTwist(e) ? ' (väände abiluu)' : ''), String(i))));
+  }
+  /** The editor's fields for the selected bone. */
+  function refreshWin() {
+    const e = sel();
+    const pose = e ? boneLimits.pose(e.name) : [0, 0, 0];
+    lSliders.forEach(({ range, out, i }) => {
+      range.disabled = !e || locked(e, i);
+      range.value = pose[i];
+      out.textContent = pose[i] + '°';
+    });
+    lBone.value = e ? String(lSelected) : '';
+    lMirror.disabled = !e?.mirrorName;
+    lLabel.innerHTML = e
+      ? 'Valitud: <b>' + e.name + '</b>' + (isTwist(e) ? '<br>Väände abiluu: ainult Y (pikitelg) on lubatud, X ja Z lihtsalt moonutaksid nahka.' : '')
+      : 'Vali luu nimekirjast või klõpsa markeril';
+    refreshLimits();
+    markers.children.forEach((m, i) => {
+      m.material = i === lSelected ? pickedMat : idleMat;
+      m.visible = bones[i].group === lGroup.value;
+    });
+  }
+  const refreshAny = () => (limitsMode ? refreshWin() : refreshBone());
+  function updateLimStatus() {
+    const dirty = limitsChanged();
+    limStatus.textContent = dirty ? 'Salvestamata piirid' : 'Piirid on failis';
+    limStatus.classList.toggle('fd__status--dirty', dirty);
+    limSave.disabled = !dirty;
+    limReload.disabled = !dirty;
+  }
+
+  lGroup.addEventListener('change', () => {
+    lGroup.blur();
+    lSelected = -1;
+    fillWinBones();
+    refreshWin();
+  });
+  lBone.addEventListener('change', () => {
+    lBone.blur();
+    lSelected = lBone.value === '' ? -1 : +lBone.value;
+    refreshWin();
+  });
+  lFocus.addEventListener('click', () => {
+    const target = sel()?.bone ?? bones.find((b) => b.group === lGroup.value)?.bone;
+    if (!target) return;
+    const dist = lGroup.value === 'face' ? 0.3 : lGroup.value === 'body' ? camera.position.distanceTo(controls.target) : 0.6;
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const p = target.getWorldPosition(new THREE.Vector3());
+    controls.target.copy(p);
+    camera.position.copy(p).addScaledVector(dir, dist);
+    controls.update();
+  });
+  lSliders.forEach(({ range }) =>
+    range.addEventListener('input', () => {
+      const e = sel();
+      if (!e) return;
+      const rot = lSliders.map((s) => +s.range.value);
+      boneLimits.setPose(e.name, rot);
+      // (a mirrored twin turns the opposite way about Y and Z, as in the bone editor)
+      if (lMirror.checked && e.mirrorName) boneLimits.setPose(e.mirrorName, [rot[0], -rot[1], -rot[2]]);
+      lSliders.forEach((s) => (s.out.textContent = s.range.value + '°'));
+    }),
+  );
+  lResetBone.addEventListener('click', () => {
+    const e = sel();
+    if (!e) return;
+    boneLimits.clearPose([e.name, ...(lMirror.checked && e.mirrorName ? [e.mirrorName] : [])]);
+    refreshWin();
+  });
+  lResetAll.addEventListener('click', () => {
+    boneLimits.clearPose();
+    refreshWin();
+  });
+  lPreview.addEventListener('change', () => (boneLimits.preview = lPreview.checked));
+  limReload.addEventListener('click', () => {
+    if (!confirm('Kustutan salvestamata piirid ja laen need failist?')) return;
+    limitsLoad(limitsFileData);
+    saveLimits();
+    commit();
+    updateStatus();
+    refreshWin();
+  });
+  limSave.addEventListener('click', async () => {
+    if (!limitsChanged()) return;
+    const label = limSave.textContent;
+    const state = limitsExport();
+    try {
+      const probe = await fetch(LIMITS_URL).catch(() => null);
+      if (!probe?.ok) throw new Error('ainult dev-serveris (npm run dev)');
+      const pin = await askPin('limits.json-i');
+      if (pin === null) return;
+      const res = await fetch(LIMITS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Save-Pin': pin }, body: JSON.stringify(state) });
+      if (!res.ok) throw new Error(res.status === 404 ? 'ainult dev-serveris (npm run dev)' : await res.text());
+      limitsFileState = canon(state);
+      limitsFileData = JSON.parse(limitsFileState);
+      limitsBase = fingerprint(limitsFileState);
+      saveLimits(); // now equal to the file: the working copy is dropped
+      limSave.textContent = 'Salvestatud ✓';
+    } catch (err) {
+      console.warn('Could not save the limits', err);
+      limSave.textContent = 'Ei õnnestunud: ' + err.message;
+    }
+    updateStatus();
+    setTimeout(() => {
+      limSave.textContent = label;
+      updateLimStatus();
+    }, 2500);
+  });
+
+  function enterLimits() {
+    if (limitsMode) return;
+    dockWasOpen = isOpen;
+    if (isOpen) close();
+    limitsMode = true;
+    document.body.classList.add('fd-limits');
+    boneLimits.setEditing(true);
+    boneLimits.preview = lPreview.checked;
+    bonesWin.hidden = false;
+    bonesLaunch.hidden = true;
+    launch.hidden = true;
+    markers.visible = true;
+    fillWinBones();
+    refreshWin();
+    updateStatus();
+  }
+  function exitLimits() {
+    if (!limitsMode) return;
+    limitsMode = false;
+    boneLimits.setEditing(false);
+    document.body.classList.remove('fd-limits');
+    bonesWin.hidden = true;
+    bonesLaunch.hidden = false;
+    launch.hidden = false;
+    markers.visible = false;
+    lines.visible = hot.visible = false;
+    if (dockWasOpen) open();
+  }
+
   // picking: a click (not an orbit drag) on a marker selects its bone
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let down = null;
   dom.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
   dom.addEventListener('pointerup', (e) => {
-    if (!isOpen || !down) return;
+    if (!active() || !down) return;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     down = null;
     if (moved > 4) return;
@@ -962,12 +1505,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     changed();
   });
   $('load-file').addEventListener('click', () => {
-    const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState;
+    const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState || limitsChanged();
     if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded failidest? Salvestamata muudatused lähevad kaduma.')) return;
     try {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LIMITS_KEY);
     } catch {}
     tweaks.load(tweaksFromSigns());
+    limitsLoad(limitsFileData);
     for (const k of [...dirtySigns]) defs.resetSign(k);
     recheckAll();
     defs.persist();
@@ -982,13 +1527,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   saveBtn.addEventListener('click', async () => {
     const label = saveBtn.textContent;
     const signKeys = [...dirtySigns];
+    const created = signKeys.filter(defs.isNew); // signs that are not in the files yet
     const state = tweaks.export();
     const tweaksDirty = canon(state) !== fileState;
+    const limitsState = limitsExport();
+    const limitsDirty = limitsChanged();
     try {
       // is there a save endpoint at all? (only the dev server has one) - checked first so the PIN isn't asked in vain
       const probe = await fetch(TWEAKS_URL).catch(() => null);
       if (!probe?.ok) throw new Error('ainult dev-serveris (npm run dev)');
-      const pin = await askPin('fingerspelling.json-i / words.json-i');
+      const pin = await askPin('fingerspelling.json-i / words.json-i / limits.json-i');
       if (pin === null) return;
       const post = async (url, body) => {
         const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Save-Pin': pin }, body: JSON.stringify(body) });
@@ -996,7 +1544,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       };
       // (the sign definitions go first: each request keeps what the other one writes - tweaks and definitions are separate fields)
       if (signKeys.length) {
-        await post(DEFS_URL, { signs: Object.fromEntries(signKeys.map((k) => [k, defs.currentDef(k)])) });
+        await post(DEFS_URL, { signs: Object.fromEntries(signKeys.map((k) => [k, defs.currentDef(k)])), create: created });
         defs.markSaved(signKeys);
         recheckAll();
       }
@@ -1007,8 +1555,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
         base = fingerprint(fileState);
         saveTweaks(); // now equal to the files, so the working copy is dropped
       }
+      if (limitsDirty) {
+        await post(LIMITS_URL, limitsState);
+        limitsFileState = canon(limitsState);
+        limitsFileData = JSON.parse(limitsFileState);
+        limitsBase = fingerprint(limitsFileState);
+        saveLimits();
+      }
       clearHistory(); // the files are the baseline now
-      saveBtn.textContent = 'Salvestatud ✓';
+      saveBtn.textContent = created.length ? 'Salvestatud ✓ – laen uuesti…' : 'Salvestatud ✓';
+      // the text box and the sign list read the word signs when the page loads: a new sign shows up there after a reload
+      if (created.length) setTimeout(() => location.reload(), 700);
     } catch (err) {
       console.warn('Could not save', err);
       saveBtn.textContent = `Ei õnnestunud: ${err.message}`;
@@ -1371,7 +1928,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     if (hand === 'L' && !sign()?.left) hand = 'R';
     currentEl.textContent = letterLabel(key);
     renderHand();
-    if (isOpen) {
+    if (active()) {
       show(key);
       freeze(scrub);
     }
@@ -1382,28 +1939,67 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
 
   // ---------------------------------------------------------------- opening, closing, the height
   const MIN_H = 380;
+  const TL_TRACKS_H = TL.ruler + TL.row * CHANNELS.length + 4 + 4; // what hiding the tracks frees (their height and the gap above them)
+  let tlCollapsed = !!readLS(UI_KEY)?.tlCollapsed;
+  let blocksCollapsed = !!readLS(UI_KEY)?.blocksCollapsed; // with the blocks hidden the dock is only as tall as its bar and timeline
+  const shown = () => height - (tlCollapsed ? TL_TRACKS_H : 0); // the dock's height on screen
+  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed });
   let height = clamp(readLS(UI_KEY)?.height ?? Math.min(500, Math.round(window.innerHeight * 0.58)), MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
   const applyHeight = () => {
     height = clamp(height, MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
-    dock.style.height = `${height}px`;
-    if (isOpen) onLayout(height);
+    dock.style.height = blocksCollapsed ? '' : `${shown()}px`;
+    if (isOpen) onLayout(blocksCollapsed ? dock.offsetHeight : shown());
   };
+  const showBlocks = () => {
+    dock.classList.toggle('fd--noblocks', blocksCollapsed);
+    blocksToggle.textContent = blocksCollapsed ? '▸ Seaded' : '▾ Seaded';
+  };
+  const toggleBlocks = () => {
+    blocksCollapsed = !blocksCollapsed;
+    showBlocks();
+    applyHeight();
+    saveUi();
+  };
+  blocksToggle.addEventListener('click', toggleBlocks);
+  // a double click on the empty part of the bar folds / unfolds the blocks, on the timeline's head its tracks (not on a control)
+  const onEmpty = (toggle) => (e) => {
+    if (!e.target.closest('button, input, select, label, output')) toggle();
+  };
+  dock.querySelector('.fd__bar').addEventListener('dblclick', onEmpty(toggleBlocks));
+  showBlocks();
+  // (the timeline's head can change height by itself, e.g. when it wraps: the dock then follows, and so must the scene above it)
+  new ResizeObserver(() => isOpen && blocksCollapsed && onLayout(dock.offsetHeight)).observe(dock);
+  const showTimeline = () => {
+    tlBox.classList.toggle('fd__tl--collapsed', tlCollapsed);
+    tlToggle.textContent = tlCollapsed ? '▸ Ajajoon' : '▾ Ajajoon';
+  };
+  const toggleTimeline = () => {
+    tlCollapsed = !tlCollapsed;
+    showTimeline();
+    applyHeight();
+    saveUi();
+  };
+  tlToggle.addEventListener('click', toggleTimeline);
+  dock.querySelector('.fd__tltop').addEventListener('dblclick', (e) => {
+    if (!e.target.closest('button, input, select, label, output')) toggleTimeline();
+  });
+  showTimeline();
   window.addEventListener('resize', applyHeight);
   let resizing = null;
   const grip = dock.querySelector('.fd__resize');
   grip.addEventListener('pointerdown', (e) => {
     grip.setPointerCapture(e.pointerId);
-    resizing = { y: e.clientY, h: height };
+    resizing = { y: e.clientY, h: shown() };
   });
   grip.addEventListener('pointermove', (e) => {
     if (!resizing) return;
-    height = resizing.h - (e.clientY - resizing.y);
+    height = resizing.h - (e.clientY - resizing.y) + (tlCollapsed ? TL_TRACKS_H : 0);
     applyHeight();
   });
   const endResize = () => {
     if (!resizing) return;
     resizing = null;
-    writeLS(UI_KEY, { open: isOpen, height });
+    saveUi();
   };
   grip.addEventListener('pointerup', endResize);
   grip.addEventListener('pointercancel', endResize);
@@ -1414,7 +2010,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     launch.hidden = true;
     document.body.classList.add('fd-open');
     markers.visible = true;
-    writeLS(UI_KEY, { open: true, height });
+    saveUi();
     applyHeight();
     const start = next ?? currentSign() ?? key ?? letters.find((l) => l !== STANDBY);
     if (start && SIGNS[start]) {
@@ -1436,10 +2032,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     document.body.classList.remove('fd-open');
     markers.visible = false;
     lines.visible = hot.visible = false;
-    writeLS(UI_KEY, { open: false, height });
     freeze(null);
+    saveUi();
     onLayout(0);
   }
+
+  bonesLaunch.addEventListener('click', enterLimits);
+  openLimitsBtn.addEventListener('click', enterLimits);
+  bonesClose.addEventListener('click', exitLimits);
   launch.addEventListener('click', () => open());
   $('close').addEventListener('click', close);
 
@@ -1457,23 +2057,28 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   return {
     /** True while the character must hold the sign still: the dock is open and the motion is not playing. */
     get holding() {
-      return isOpen && !playing;
+      return active() && !playing;
     },
     open,
     close,
+    enterLimits,
+    exitLimits,
+    get limitsMode() {
+      return limitsMode;
+    },
     get isOpen() {
       return isOpen;
     },
     setSign,
     /** Keep markers and lines on their bones (markers at a constant on-screen size); call once per frame after everything is posed. */
     update() {
-      if (!isOpen) return;
+      if (!active()) return;
       const text = info();
       if (twistEl.textContent !== text) {
         twistEl.textContent = text;
         twistEl.classList.toggle('fd__warn', text.includes('⚠'));
       }
-      const showLines = linesBox.checked;
+      const showLines = limitsMode || linesBox.checked;
       lines.visible = hot.visible = showLines;
       let n = 0;
       for (const m of markers.children) {
@@ -1487,12 +2092,45 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
 
       let h = 0;
       const e = sel();
+
+      // the slider being moved goes back with the bone when the limits hold it (see overflow)
+      if (adjust.bone && adjust.bone === e && !e.shape && key) {
+        if (performance.now() > adjust.until) {
+          adjust.bone = null;
+          caps.forEach((c) => (c.min = c.max = undefined));
+          refreshBone();
+        } else {
+          const ex = overflow(e)[adjust.i];
+          if (Math.abs(ex) >= 0.5) {
+            const now = tweaks.get(editKey(), e.name);
+            now.rot[adjust.i] = Math.round(now.rot[adjust.i] - ex);
+            caps[adjust.i] = ex > 0 ? { max: now.rot[adjust.i] } : { min: now.rot[adjust.i] };
+            writeBone(e, { rot: now.rot, pos: now.pos }, `bone:${e.name}:${key}`);
+            refreshBone();
+          }
+        }
+      }
       if (showLines && e?.bone) {
         e.bone.getWorldPosition(pb);
         if (e.bone.parent?.isBone) h = addSegment(hot, h, e.bone.parent.getWorldPosition(pa), pb);
         for (const child of e.bone.children) if (child.isBone) h = addSegment(hot, h, pb, child.getWorldPosition(pa));
       }
       flush(hot, h);
+
+      // the selected bone's angle from its rest pose, red where the limit is holding it
+      if (e && !e.shape) {
+        const show = (rows, angle, excess) => {
+          for (const row of rows) {
+            const text = `${Math.round(angle[row.i])}°`;
+            if (row.now.textContent !== text) row.now.textContent = text;
+            const held = Math.abs(excess[row.i]) > 0.05;
+            row.now.classList.toggle('fd__atlimit', held);
+            row.now.title = held ? `Piiratud: ilma piirita oleks ${Math.round(angle[row.i] + excess[row.i])}°` : '';
+          }
+        };
+        show(limitRows, boneLimits.current(e.name), boneLimits.excess(e.name));
+        if (!fingerBox.hidden) show(fingerRows, fingerLimits.current(e.name), fingerLimits.excess(e.name));
+      }
     },
   };
 }
