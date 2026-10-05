@@ -172,4 +172,15 @@ const saveSignTweaks = () => {
   };
 };
 
-export default { plugins: [saveSignTweaks()] };
+export default {
+  plugins: [saveSignTweaks()],
+  build: {
+    chunkSizeWarningLimit: 900, // three.js alone is ~835 kB
+    rolldownOptions: {
+      output: {
+        // three.js in its own chunk, so it stays cached when only the app code changes
+        codeSplitting: { groups: [{ name: 'three', test: /node_modules[\\/]three/ }] },
+      },
+    },
+  },
+};
