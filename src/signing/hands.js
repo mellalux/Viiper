@@ -66,7 +66,9 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 //   curl      0..1 added to the curl of all four fingers, as the fingers folding in a goodbye wave
 //   outer     added (-1..1) to the curl of the index and little finger only, as the two horns of a sign folding down or up
 //             while the middle and ring finger stay (the curls are clamped to 0..1 after adding)
-// The hand takes the path once, slowing at the corners, and then holds its last point.
+// The hand takes the path once, slowing at the corners, and then holds its last point. When to reach each point is by default
+// worked out from the lengths of the segments (a long segment takes longer), so editing one point shifts the times of all the
+// others; `motion.times` (optional, one fraction 0..1 per point, rising, first 0 and last 1) pins the points in time instead.
 // `motion.stagger` (0 .. 0.33, optional) lets the fingers take the curl channel one after the other instead of together: each
 // finger starts that fraction of the path after the one before (index first) and all end together, as fingers rippling.
 export const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path
@@ -78,8 +80,9 @@ const CHANNELS = 8;
 const CHANNEL_WEIGHT = [1, 1, 1, 0.004, 0.004, 0.004, 0.2, 0.2];
 const smooth = (s) => s * s * (3 - 2 * s);
 
-/** The share (0..1) of the path's time each segment gets, in proportion to its length. */
-function segmentShares(path) {
+/** The share (0..1) of the path's time each segment gets: as `times` (one fraction per point) says, else in proportion to its length. */
+function segmentShares(path, times) {
+  if (times?.length === path.length) return times.slice(1).map((t, i) => Math.max(t - times[i], 0));
   const at = (pt, c) => pt[c] ?? 0;
   const lens = path.slice(1).map((b, i) => Math.hypot(...Array.from({ length: CHANNELS }, (_, c) => (at(b, c) - at(path[i], c)) * CHANNEL_WEIGHT[c])));
   const total = lens.reduce((a, b) => a + b, 0) || 1;
@@ -87,15 +90,15 @@ function segmentShares(path) {
 }
 
 /** The fraction (0..1) of the path's time at which each point is reached (the first is 0, the last 1). */
-export function pathTimes(path) {
+export function pathTimes(path, times) {
   let acc = 0;
-  return [0, ...segmentShares(path).map((s) => (acc += s))];
+  return [0, ...segmentShares(path, times).map((s) => (acc += s))];
 }
 
 /** Point at fraction `r` (0..1) of the path, written into `out`; every segment gets a share of the time in proportion to its length. */
-export function tracePoint(path, r, out) {
+export function tracePoint(path, r, out, times) {
   const at = (pt, c) => pt[c] ?? 0;
-  const shares = segmentShares(path);
+  const shares = segmentShares(path, times);
   let acc = 0;
   for (let i = 0; i < shares.length; i++) {
     const share = shares[i];
@@ -191,10 +194,10 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   const curlAt = (pt, f) => pt[6] + (f === 0 || f === 3 ? pt[7] : 0);
   /** The path at fraction `r`, into motion.off; the curl of each finger into motion.fingerCurl (staggered when the path says so). */
   const tracePath = (def, r) => {
-    tracePoint(def.path, r, motion.off);
+    tracePoint(def.path, r, motion.off, def.times);
     const gap = Math.min(Math.max(def.stagger ?? 0, 0), 1 / 3);
     for (let f = 0; f < 4; f++) {
-      motion.fingerCurl[f] = curlAt(gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint) : motion.off, f);
+      motion.fingerCurl[f] = curlAt(gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint, def.times) : motion.off, f);
     }
   };
   const stepMotion = (dt, k) => {
@@ -215,7 +218,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     motion.t += Math.min(dt, 0.05); // a stalled frame must not skip the drawing
     if (motion.t < MOTION_LEAD) {
       // the hand gets to the first point of the path (the pose itself, unless the path starts elsewhere: a sign that begins at the forehead)
-      const first = tracePoint(def.path, 0, fingerPoint);
+      const first = tracePoint(def.path, 0, fingerPoint, def.times);
       for (let c = 0; c < CHANNELS; c++) motion.off[c] = first[c] + (motion.from[c] - first[c]) * (1 - smooth(motion.t / MOTION_LEAD));
       for (let f = 0; f < 4; f++) motion.fingerCurl[f] = curlAt(motion.off, f);
     } else tracePath(def, (motion.t - MOTION_LEAD) / def.duration);

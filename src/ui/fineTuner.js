@@ -1028,6 +1028,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   svg.setAttribute('class', 'fd__svg');
   const timeLabel = el('span', 'fd__time');
   let ptInputs = []; // the selected point's number fields
+  let timeField = null; // ... its time (the middle points only)
+  let autoBtn = null;
   let ranges = CHANNELS.map((c) => c.min); // half-range of each track; held still while a dot is dragged
   let drag = null;
   let lastDown = null; // the last press on the tracks' background, for the double click
@@ -1038,6 +1040,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   const xOf = (r) => TL.gutter + r * plotW;
   const yMid = (c) => TL.ruler + c * TL.row + TL.row / 2;
   const half = TL.row / 2 - 3;
+  // The points' times: by default worked out from the segment lengths, so editing one point would shift all the others. The
+  // first edit pins them (motion.times, see hands.js), so a keyframe stays where it is while another one is changed.
+  const pin = (m) => {
+    if (m.times?.length === m.path.length) return;
+    m.times = pathTimes(m.path).map((t) => Math.round(t * 10000) / 10000);
+    m.times[0] = 0;
+    m.times[m.times.length - 1] = 1;
+  };
   const fit = () => {
     const m = motion();
     if (!m) return;
@@ -1103,7 +1113,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     delBtn.title = 'Eemalda valitud punkt';
     delBtn.disabled = m.path.length <= 2;
     delBtn.addEventListener('click', () => {
+      pin(m);
       m.path.splice(selPoint, 1);
+      m.times.splice(selPoint, 1);
       selPoint = clamp(selPoint, 0, m.path.length - 1);
       buildTimeline();
       changed();
@@ -1113,6 +1125,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       const field = input('number', { step: c.step });
       field.title = c.title;
       field.addEventListener('input', () => {
+        pin(m);
         const point = m.path[selPoint];
         while (point.length <= i) point.push(0);
         point[i] = Number.isFinite(+field.value) ? +field.value : 0;
@@ -1126,6 +1139,27 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       pt.appendChild(label);
       return field;
     });
+    timeField = input('number', { min: 0, max: m.duration, step: 0.01 });
+    timeField.title = 'Millal valitud punkti jõutakse (s); jääb alles, kui teisi punkte muudetakse';
+    timeField.addEventListener('input', () => {
+      pin(m);
+      const i = selPoint;
+      if (i <= 0 || i >= m.path.length - 1 || !Number.isFinite(+timeField.value)) return;
+      m.times[i] = Math.round(clamp(+timeField.value / m.duration, m.times[i - 1], m.times[i + 1]) * 10000) / 10000;
+      changed(`time:${key}:${hand}:${i}`);
+      drawTimeline();
+    });
+    const timeLabelField = el('label');
+    timeLabelField.append(el('span', '', 't'), timeField);
+    autoBtn = el('button', '', 'Ajad automaatselt');
+    autoBtn.title = 'Unusta punktide kindlad ajad: iga lõik saab aega oma pikkuse järgi';
+    autoBtn.addEventListener('click', () => {
+      delete m.times;
+      changed();
+      fillPointInputs();
+      drawTimeline();
+    });
+    pt.append(timeLabelField, autoBtn);
     pt.prepend(el('span', 'fd__note', `Punkt ${selPoint + 1}/${m.path.length}:`));
     pt.title = 'Esimene punkt on viipe enda asend, kui see on [0, 0]';
     tlHead.append(playBtn, timeLabel, durLabel, staggerLabel, addBtn, delBtn, pt);
@@ -1140,6 +1174,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     ptInputs.forEach((field, i) => {
       if (document.activeElement !== field) field.value = point?.[i] ?? 0;
     });
+    const m = motion();
+    if (timeField && m) {
+      const t = pathTimes(m.path, m.times)[selPoint] ?? 0;
+      if (document.activeElement !== timeField) timeField.value = round(t * m.duration, 0.01);
+      timeField.disabled = selPoint <= 0 || selPoint >= m.path.length - 1;
+      autoBtn.disabled = !m.times;
+    }
   }
 
   function drawTimeline() {
@@ -1151,12 +1192,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     svg.setAttribute('width', width);
     svg.setAttribute('height', height);
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    const times = pathTimes(m.path);
+    const times = pathTimes(m.path, m.times);
     const r = shownR();
     const tmp = new Array(CHANNELS.length).fill(0);
     let s = '';
     // tracks: background, zero line, label with the value under the playhead
-    const here = tracePoint(m.path, r, [...tmp]);
+    const here = tracePoint(m.path, r, [...tmp], m.times);
     CHANNELS.forEach((c, i) => {
       const top = TL.ruler + i * TL.row;
       s += `<rect x="${TL.gutter}" y="${top}" width="${plotW}" height="${TL.row}" fill="${i % 2 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.06)'}"/>`;
@@ -1173,7 +1214,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     }
     // the curves
     const n = clamp(Math.round(plotW / 3), 24, 240);
-    const samples = Array.from({ length: n + 1 }, (_, k) => tracePoint(m.path, k / n, [...tmp]));
+    const samples = Array.from({ length: n + 1 }, (_, k) => tracePoint(m.path, k / n, [...tmp], m.times));
     CHANNELS.forEach((c, i) => {
       const pts = samples.map((v, k) => `${xOf(k / n).toFixed(1)},${(yMid(i) - (v[i] / ranges[i]) * half).toFixed(1)}`).join(' ');
       s += `<polyline points="${pts}" fill="none" stroke="${c.color}" stroke-width="1.5" opacity="0.9" pointer-events="none"/>`;
@@ -1236,6 +1277,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const m = motion();
     if (!m) return;
     if (drag.type === 'scrub') return setScrub(fractionAt(e));
+    pin(m); // before the first change, so the other points keep their times
     const step = CHANNELS[drag.c].step;
     const v = drag.v0 - ((e.clientY - drag.y0) / half) * drag.range;
     const point = m.path[drag.p];
@@ -1265,13 +1307,15 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   function addPointAt(r) {
     const m = motion();
     if (!m) return;
-    const times = pathTimes(m.path);
-    const at = tracePoint(m.path, r, new Array(CHANNELS.length).fill(0)).map((v) => Math.round(v * 1000) / 1000);
+    pin(m);
+    const times = m.times;
+    const at = tracePoint(m.path, r, new Array(CHANNELS.length).fill(0), times).map((v) => Math.round(v * 1000) / 1000);
     const next = times.findIndex((t) => t > r);
-    const insertAt = next < 0 ? m.path.length : Math.max(1, next);
+    const insertAt = next < 0 ? m.path.length - 1 : Math.max(1, next); // never after the last point, which stays the end
     const point = [...at];
     trim(point);
     m.path.splice(insertAt, 0, point);
+    m.times.splice(insertAt, 0, Math.round(r * 10000) / 10000);
     selPoint = insertAt;
     buildTimeline();
     changed();
