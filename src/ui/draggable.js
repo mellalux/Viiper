@@ -1,5 +1,5 @@
 // Makes a fixed-position panel draggable by its title bar and remembers where it was left. The bar also gets a button that
-// collapses the panel to just the bar (remembered too); the bar must be the panel's first child.
+// collapses the panel to just the bar (remembered too; a double click on the bar does the same); the bar must be the panel's first child.
 // `defaultPosition` is called once (after the panel is in the DOM) when nothing is saved yet.
 const css = `
 /* the doubled class outranks the panels' own button styles */
@@ -11,7 +11,7 @@ button.panel-collapse.panel-collapse:hover:not(:disabled) { color: #e8e8ec; back
 .panel-collapse::before { content: '▾'; display: block; }
 .is-collapsed .panel-collapse::before { content: '▸'; }
 .is-collapsed > :not(:first-child) { display: none !important; }
-.is-collapsed { padding-bottom: 0 !important; }
+.is-collapsed { padding-bottom: 0 !important; height: auto !important; min-height: 0 !important; } /* a panel with a fixed height shrinks to the bar */
 .is-collapsed > :first-child { border-bottom-color: transparent !important; }
 `;
 
@@ -58,12 +58,18 @@ export function makeDraggable(panel, bar, storageKey, defaultPosition) {
     collapsed = localStorage.getItem(collapseKey) === '1';
   } catch {}
   setCollapsed(collapsed);
-  toggle.addEventListener('click', () => {
+  const flip = () => {
     collapsed = !collapsed;
     setCollapsed(collapsed);
     try {
       localStorage.setItem(collapseKey, collapsed ? '1' : '0');
     } catch {}
+  };
+  toggle.addEventListener('click', flip);
+  bar.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    getSelection()?.removeAllRanges(); // the double click selects the word under the cursor
+    flip();
   });
 
   let drag = null;
