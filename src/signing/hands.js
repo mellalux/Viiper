@@ -24,7 +24,7 @@ import { detectRig } from '../character/rigs.js';
 //              thumb = a thumb pose; spread = same finger order (radians, optional); knuckle = extra bend (radians)
 //              of the finger at the base joint only, keeping the finger straight (optional).
 // words.json holds the word signs in the same format (signs.<WORD>: curl, dir, thumb, motion, tweaks).
-// Fine-tuning made with the bone editor (rotation and position of any bone, see tweaks.js) is stored next to the sign, in
+// Fine-tuning made in the fine-tuning window (rotation and position of any bone, see tweaks.js) is stored next to the sign, in
 // fingerspelling.json or words.json: signs.<letter>.tweaks (and global, in fingerspelling.json only).
 export const ORIENT = shared.orient;
 
@@ -76,15 +76,28 @@ const CHANNELS = 7;
 const CHANNEL_WEIGHT = [1, 1, 1, 0.004, 0.004, 0.004, 0.2];
 const smooth = (s) => s * s * (3 - 2 * s);
 
-/** Point at fraction `r` (0..1) of the path, written into `out`; every segment gets a share of the time in proportion to its length. */
-function tracePoint(path, r, out) {
+/** The share (0..1) of the path's time each segment gets, in proportion to its length. */
+function segmentShares(path) {
   const at = (pt, c) => pt[c] ?? 0;
   const lens = path.slice(1).map((b, i) => Math.hypot(...Array.from({ length: CHANNELS }, (_, c) => (at(b, c) - at(path[i], c)) * CHANNEL_WEIGHT[c])));
   const total = lens.reduce((a, b) => a + b, 0) || 1;
+  return lens.map((l) => l / total);
+}
+
+/** The fraction (0..1) of the path's time at which each point is reached (the first is 0, the last 1). */
+export function pathTimes(path) {
   let acc = 0;
-  for (let i = 0; i < lens.length; i++) {
-    const share = lens[i] / total;
-    if (r <= acc + share || i === lens.length - 1) {
+  return [0, ...segmentShares(path).map((s) => (acc += s))];
+}
+
+/** Point at fraction `r` (0..1) of the path, written into `out`; every segment gets a share of the time in proportion to its length. */
+export function tracePoint(path, r, out) {
+  const at = (pt, c) => pt[c] ?? 0;
+  const shares = segmentShares(path);
+  let acc = 0;
+  for (let i = 0; i < shares.length; i++) {
+    const share = shares[i];
+    if (r <= acc + share || i === shares.length - 1) {
       const e = smooth(Math.min(Math.max((r - acc) / (share || 1), 0), 1));
       for (let c = 0; c < CHANNELS; c++) out[c] = at(path[i], c) + (at(path[i + 1], c) - at(path[i], c)) * e;
       return out;
@@ -440,7 +453,9 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       if (!sign) return;
       letter = key;
       if (!defined) return;
-      const o = key === STANDBY ? orientOf(STANDBY_DIR[side]) : orientOf(sign.dir, sign.orient);
+      // The standby sign may define its own orient (`dir`, `orient`); without, each hand waits in its named one. The left hand
+      // waiting in a sign of its own has no say of its own in the standby sign's `dir` (that one is the right hand's).
+      const o = key !== STANDBY ? orientOf(sign.dir, sign.orient) : side === 'L' && !own ? orientOf(STANDBY_DIR.L) : orientOf(sign.dir ?? STANDBY_DIR[side], sign.orient);
       tgt.curl = [...sign.curl];
       tgt.spread = sign.spread.map((s) => s * axisSign[rig.spreadAxis] * rig.spreadSign);
       tgt.thumb = thumbPoses[sign.thumb].flat().map((v, i) => v * axisSign[i % 3]);
@@ -502,7 +517,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     freezeMotion(r) {
       frozenAt = r;
     },
-    /** True while the path must not play (frozen debug pose, bone editor open): the hand holds the tuned pose. */
+    /** True while the path must not play (frozen debug pose, fine-tuning window open): the hand holds the tuned pose. */
     set motionPaused(v) {
       motion.paused = v;
     },

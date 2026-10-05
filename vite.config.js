@@ -2,11 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Dev-only: lets the editor panel's "Salvesta faili" button write its tweaks into src/data/fingerspelling.json (letters)
+// Dev-only: lets the fine-tuning window's "Salvesta faili" button write its tweaks into src/data/fingerspelling.json (letters)
 // and src/data/words.json (word signs): every sign's tweaks go to the file that holds that sign.
 // Writing needs the PIN kept in .save-pin (git-ignored; edit the file to change it). The server checks it, not the page.
 const SAVE_URL = '/__save-sign-tweaks';
-const DEFS_URL = '/__save-sign-defs'; // the sign editor: curl, orient, motion ... of whole signs
+const DEFS_URL = '/__save-sign-defs'; // the fine-tuning window: curl, orient, motion ... of whole signs
 const SIGNS_FILE = 'src/data/fingerspelling.json'; // also holds the body's `global` tweaks
 const WORDS_FILE = 'src/data/words.json';
 const PIN_FILE = '.save-pin';
@@ -38,7 +38,7 @@ export const serialize = (data) =>
 
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
-// A sign's definition (what the sign editor saves). The fields a sign may have, in the order they are written; `note` and
+// A sign's definition (what the fine-tuning window saves). The fields a sign may have, in the order they are written; `note` and
 // `tweaks` are not part of it and stay as they are in the file.
 const DEF_FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'];
 const nums = (a, n) => Array.isArray(a) && (n === undefined || a.length === n) && a.every((x) => typeof x === 'number' && Number.isFinite(x));

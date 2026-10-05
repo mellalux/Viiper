@@ -53,31 +53,31 @@ If the model fails to load, a placeholder cube is shown.
 
 `window.__app` exposes the scene, rig, hands, mouth and tweaks in the browser console for debugging.
 
-## Fine-tuning signs (bone editor)
+## Fine-tuning signs (*Peenhäälestus*)
 
-The *Peenhäälestus* panel lets you adjust the rotation of any bone (arms and fingers, face and lips, body) and the weight of any face shape key.
+On the dev server the **Peenhäälestus** button (top right) opens one horizontal window along the bottom of the screen: blocks with the settings on top, the motion timeline below. The scene moves up to stay above it; drag the window's top edge to change its height. It remembers whether it was open.
 
-1. Tick **Muuda märki** to hold a sign, then pick a letter, a group and a bone (from the list, or by clicking its marker in the scene).
-2. Adjust it with the sliders. Tweaks apply per letter for the face and the signing arm. They apply to the standby pose for the other arm, and always for the body.
-3. Optionally mirror the edit to the opposite side, or copy the tweaks from another letter.
+**Blocks**
 
-Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili (fingerspelling.json)**. This writes them into [src/data/fingerspelling.json](src/data/fingerspelling.json) (letters) or [src/data/words.json](src/data/words.json) (word signs), whichever file holds the sign, and works **only on the dev server**.
-
-### Sign editor (*Viipe seaded…*)
-
-The button at the top of the *Peenhäälestus* panel opens a window for what makes a sign, as opposed to single bones. Pick a sign (letters and words) and a hand (*Parem käsi* / *Vasak käsi*; the left hand can be added to or removed from a sign):
-
-- **Käe asend:** the named orient (`dir`) plus this sign's own changes to it: wrist position (`reach`), elbow direction (`pole`), which way the fingers and thumb point, the wrist bend limit. Changes are kept in the sign as `orient` and never touch other signs that use the same named orient.
+- **Märk:** search for a letter or a word (accents don't matter, Enter picks the first hit) or click one in the list; a dot marks signs with unsaved changes. *Parem käsi* / *Vasak käsi* choose which hand the blocks and the timeline edit (the left hand can be added to or removed from a sign). *Ooteasend tähtede vahel* keeps the hands in the standby pose between signs.
+- **Käe asend:** the named orient (`dir`) plus this sign's own changes to it: wrist position (`reach`), elbow direction (`pole`), which way the fingers and thumb point, the wrist bend limit. Changes are kept in the sign as `orient` and never touch other signs that use the same named orient. It also shows *Randme väänd*, the twist of the hands against the forearms.
 - **Sõrmed:** curl, spread and knuckle bend of each finger and the thumb pose. (The finger-spelling letters have no finger data, only bone tweaks: *Määra sõrmeandmed* adds it.)
-- **Liikumine:** the motion path as a table of points (`x y z tilt flex roll curl`, see [src/signing/hands.js](src/signing/hands.js)) and its duration. The character holds the sign at the *Asend teel* slider while you edit; *▶ Mängi* plays it.
+- **Luu peenhäälestus:** the rotation of any bone (arms and fingers, face and lips, body) and the weight of any face shape key. Pick a group and a bone (from the list, or by clicking its marker in the scene) and use the sliders. Tweaks apply per sign for the face and the signing arm, to the standby pose for the other arm, and always for the body. Optionally mirror the edit to the opposite side.
+- **Kopeeri teisest märgist:** copy bone tweaks from another sign (whole sign, the chosen group or the chosen bone), with one step of undo.
 
-Every change shows at once and is kept in the browser until *Salvesta faili* writes the changed signs into [src/data/fingerspelling.json](src/data/fingerspelling.json) or [src/data/words.json](src/data/words.json) (same PIN as the bone editor; the signs' notes and bone tweaks are kept; the files are rewritten in the compact layout). *Lähtesta see märk* goes back to what the file holds. The window is on the dev server only.
+**Timeline (*Liikumine*)** shows the sign's motion path, one track per channel (`x y z tilt flex roll curl`, see [src/signing/hands.js](src/signing/hands.js)). The character holds the sign at the playhead while you edit; *▶ Mängi* plays it. The points of the path are the dots:
+
+- drag a dot up or down to change that channel of the point; the number fields next to *Punkt n/m* set it exactly;
+- click or drag in the ruler or between the tracks to move the playhead; double-click a track (or *+ Punkt*) to add a point there; *− Punkt* removes the selected one;
+- the points sit where the character reaches them: each segment gets a share of the *Kestus* in proportion to its length, so changing a point also moves the ones after it. *Hajutus* (`stagger`) lets the fingers take the curl channel one after the other.
+
+Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili**. It asks for the PIN and writes the changed sign definitions and bone tweaks into [src/data/fingerspelling.json](src/data/fingerspelling.json) (letters) or [src/data/words.json](src/data/words.json) (word signs), whichever file holds the sign (the signs' notes are kept; the files are rewritten in the compact layout). It works **only on the dev server**. *Lähtesta märk* sends the sign's definition back to what the file holds; *Lae failist* drops the whole working copy.
 
 ### Fixing a sign that looks wrong
 
 1. **Open it frozen:** `http://localhost:5173/?sign=HEA` (or another letter / word) holds the sign still; `&at=0.5` also holds its motion half way. `?colliders=1` draws the body shape the arms are kept out of.
-2. **The sign itself** (where the hand is, the elbow, the fingers, the motion): *Viipe seaded…* above. **Small things** (a single finger, the thumb, the hand's angle): the *Peenhäälestus* panel. Tick *Muuda märki*, pick the sign and bone, adjust, save.
-3. **The arm looks twisted:** the panel shows *Randme väänd* (the hand's twist against the forearm). Up to about ±100° is natural (palm to the body is about 0°, palm facing out about 90°); beyond that the forearm looks wrung. The cause is nearly always the elbow's position: change `pole` of the sign's orient in [src/data/shared.json](src/data/shared.json) (the direction the elbow points; `[-1, -0.6, 0.2]` = out and down) and watch the number. The same file holds `reach` (where the wrist is, in arm lengths from the shoulder) and `finger` / `thumb` (which way the hand points). Hand angles that fight the forearm direction also bend the wrist; keep `finger` roughly along the line from the elbow to the wrist.
+2. **The sign itself** (where the hand is, the elbow, the fingers, the motion): the *Käe asend*, *Sõrmed* blocks and the timeline of *Peenhäälestus*. **Small things** (a single finger, the thumb, the hand's angle): its *Luu peenhäälestus* block. Pick the sign and bone, adjust, save.
+3. **The arm looks twisted:** *Käe asend* shows *Randme väänd* (the hand's twist against the forearm). Up to about ±100° is natural (palm to the body is about 0°, palm facing out about 90°); beyond that the forearm looks wrung. The cause is nearly always the elbow's position: change `pole` of the sign's orient in [src/data/shared.json](src/data/shared.json) (the direction the elbow points; `[-1, -0.6, 0.2]` = out and down) and watch the number. The same file holds `reach` (where the wrist is, in arm lengths from the shoulder) and `finger` / `thumb` (which way the hand points). Hand angles that fight the forearm direction also bend the wrist; keep `finger` roughly along the line from the elbow to the wrist.
 4. **The hand or elbow is inside the body:** the body collision usually moves it, but a hand that has to be pushed a lot means `reach` is wrong (more `z` = further forward).
 5. **Motion:** `motion.path` in the sign (words.json) – see the comment in [src/signing/hands.js](src/signing/hands.js) for the numbers.
 
@@ -113,15 +113,14 @@ src/
     hands.js            poses and arm IK
     tweaks.js           hand-tuned bone / shape offsets layered on top of poses
     limits.js           finger joint limits
-    signDefs.js         sign definitions edited in the sign editor (baseline, working copy)
+    signDefs.js         sign definitions edited in the fine-tuning window (baseline, working copy)
     twist.js            shares the wrist twist over the forearm (skin)
     body.js             trunk / head collision shape (keeps arms out of the body)
   ui/                   panels
     draggable.js        draggable, position-remembering panels
     letterPanel.js      letter buttons
     viewControls.js     camera panel
-    boneEditor.js       fine-tuning panel
-    signEditor.js       sign editor window (orient, fingers, motion)
+    fineTuner.js        fine-tuning window: sign search, hand pose, fingers, bones, motion timeline
     pin.js              the save PIN dialog
 ```
 
@@ -138,7 +137,7 @@ In `shared.json`:
 
 In `fingerspelling.json`:
 
-- `signs`: per letter, finger `curl` (0 straight to 1 fully curled), optional `spread` and `knuckle`, an `orient` (`dir`), a thumb pose, and optional `tweaks` from the bone editor.
+- `signs`: per letter, finger `curl` (0 straight to 1 fully curled), optional `spread` and `knuckle`, an `orient` (`dir`), a thumb pose, and optional `tweaks` from the fine-tuning window.
 - `global`: tweaks that always apply (body).
 
 Details are in the header comments of [src/signing/hands.js](src/signing/hands.js), [src/character/mouth.js](src/character/mouth.js) and [src/signing/tweaks.js](src/signing/tweaks.js).

@@ -1,13 +1,13 @@
 import fingerspelling from '../data/fingerspelling.json';
 import words from '../data/words.json';
-import { SIGNS, STANDBY } from './hands.js';
+import { SIGNS } from './hands.js';
 
-// The definition of a sign (what the sign editor changes) as opposed to its bone tweaks (tweaks.js):
+// The definition of a sign (what the fine-tuning window changes) as opposed to its bone tweaks (tweaks.js):
 // curl, thumb, spread, knuckle, dir (a named orient), orient (changes to that orient, for this sign only), motion, and
 // `left` (the same fields for the other hand). hands.js reads SIGNS live, so editing a definition here shows at once.
 //
 // What the data files hold is remembered as the baseline; a sign that differs from it is "changed". Changed signs are kept
-// in localStorage as a working copy (like the bone editor's tweaks) until they are saved into the files (dev server).
+// in localStorage as a working copy (like the bone tweaks) until they are saved into the files (dev server).
 export const FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'];
 const STORAGE_KEY = 'viiper.signDefs';
 
@@ -24,8 +24,8 @@ const pick = (sign) => Object.fromEntries(FIELDS.filter((f) => sign[f] !== undef
 // the signs as the files hold them (copied now: SIGNS shares its nested objects with the imported JSON, and the editor edits those)
 const baseline = new Map(Object.entries({ ...fingerspelling.signs, ...words.signs }).map(([k, s]) => [k, pick(s)]));
 
-/** Keys of the signs that can be edited: letters first, then words (the standby pose has no definition of its own). */
-export const signKeys = () => Object.keys(SIGNS).filter((k) => k !== STANDBY);
+/** Keys of the signs that can be edited: letters first, then words (the standby pose has a definition only once it is given finger data). */
+export const signKeys = () => Object.keys(SIGNS);
 
 /** The sign's definition as it is now, without the zero spread / knuckle that every sign gets by default. */
 export function currentDef(key) {

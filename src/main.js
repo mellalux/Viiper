@@ -14,8 +14,7 @@ import { createTweaks } from './signing/tweaks.js';
 import { createLimits } from './signing/limits.js';
 import { createBody } from './signing/body.js';
 import { createTwist } from './signing/twist.js';
-import { createBoneEditor } from './ui/boneEditor.js';
-import { createSignEditor } from './ui/signEditor.js';
+import { createFineTuner } from './ui/fineTuner.js';
 import * as signDefs from './signing/signDefs.js';
 import { createViewControls } from './ui/viewControls.js';
 import { createSplash } from './ui/splash.js';
@@ -75,8 +74,7 @@ let limits = null; // joint limits of the fingers
 let twist = null; // shares the hand's twist out over the forearm so the wrist skin isn't wrung
 let body = null; // collision shape of the trunk and head, keeps the arms out of it
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
-let boneEditor = null;
-let signEditor = null; // the sign definitions window (dev server only)
+let fineTuner = null; // the fine-tuning dock: sign definitions, bones, motion timeline (dev server only)
 let gaze = null; // turns the eyes towards the mouse cursor
 
 // Debug helpers: ?blink=0..1 freezes the lids at that closure, ?face=1 frames the face (?face=mouth the mouth),
@@ -114,30 +112,28 @@ loader.load(
     if (import.meta.env.DEV) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
     hands = createHands(gltf.scene, 'R', { body });
     handsL = createHands(gltf.scene, 'L', { body });
-    // the fine-tuning panel (and its save button) only exists on the dev server, not in the production build
+    // the fine-tuning dock (and its save button) only exists on the dev server, not in the production build
     if (import.meta.env.DEV) {
-      boneEditor = createBoneEditor({
-        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS), twistAngles: () => twist?.angles() ?? [0, 0],
-        onLetter: say,
-        onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
-        onOpenSignEditor: () => signEditor?.open(hands?.key && hands.key !== STANDBY ? hands.key : undefined),
-      });
-      signEditor = createSignEditor({
+      fineTuner = createFineTuner({
+        scene, camera, controls, dom: renderer.domElement, tweaks, letters: Object.keys(SIGNS),
         show: (k) => [hands, handsL].forEach((h) => h?.snapSign(k)),
         play: say,
         freeze: (r) => [hands, handsL].forEach((h) => h?.freezeMotion(r)),
         select: press,
+        onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
+        currentSign: () => hands?.key,
         info: () => {
           const [r, l] = twist?.angles() ?? [0, 0];
           return `Randme väänd: parem ${r}°, vasak ${l}°${Math.abs(r) > 100 || Math.abs(l) > 100 ? '  ⚠ käsivars võib näida keerdus' : ''}`;
         },
+        onLayout: setDockHeight,
       });
     }
     // start in the standby pose (or the ?sign= letter) instead of rising from a hanging arm
     hands?.snapSign(params.get('sign'));
     handsL?.snapSign(params.get('sign'));
     if (params.has('at')) [hands, handsL].forEach((h) => h?.freezeMotion(+params.get('at'))); // ?sign=TERE&at=0.5: hold the motion half way
-    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, body, twist, signEditor, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
+    window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, body, twist, fineTuner, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
     window.__modelReady = true;
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
@@ -172,9 +168,20 @@ loader.load(
   },
 );
 
-window.addEventListener('resize', () => {
+// The fine-tuning dock covers the bottom of the screen: the view is shifted up so the character stays in the part left over.
+let dockHeight = 0;
+function updateView() {
   camera.aspect = window.innerWidth / window.innerHeight;
+  if (dockHeight) camera.setViewOffset(window.innerWidth, window.innerHeight, 0, dockHeight / 2, window.innerWidth, window.innerHeight);
+  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
+}
+function setDockHeight(px) {
+  dockHeight = px;
+  updateView();
+}
+window.addEventListener('resize', () => {
+  updateView();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
@@ -195,14 +202,14 @@ renderer.setAnimationLoop(() => {
   limits?.apply(); // fingers can't bend the wrong way (after the tweaks, which may push them there)
   for (const h of [hands, handsL]) {
     if (!h) continue;
-    h.motionPaused = frozenSign || (boneEditor?.active ?? false); // tuning a sign needs it to hold still
+    h.motionPaused = frozenSign || (fineTuner?.holding ?? false); // tuning a sign needs it to hold still
     h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
     if (params.get('guard') !== '0') h.avoidBody(); // and last, arms and hands are kept out of the body
   }
   twist?.apply(); // the arms have their final pose: the forearm's twist bones follow the hand
   gaze?.update(dt);
   morphs?.flush();
-  boneEditor?.update();
+  fineTuner?.update();
   controls.update();
   renderer.render(scene, camera);
 });
@@ -243,8 +250,7 @@ function say(letter, text = letter) {
 
 function press(letter, text) {
   say(letter, text);
-  boneEditor?.setLetter(letter);
-  signEditor?.setSign(letter);
+  fineTuner?.setSign(letter);
 }
 // After release the hands stay in the last sign (the panel keeps it highlighted); only the mouth returns to rest.
 // Escape sends the hands back to standby.
