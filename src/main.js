@@ -84,10 +84,12 @@ let gaze = null; // turns the eyes towards the mouse cursor
 // ?guard=0 turns the body collision off, ?colliders=1 draws its shape.
 const params = new URLSearchParams(location.search);
 
-// Default view: front-on, head to waist, so the face and the signing hand are both visible.
-function frameUpperBody() {
-  controls.target.set(-0.05, 1.45, 0);
-  camera.position.set(-0.05, 1.5, 1.45);
+// Default view: straight on, head to waist, the character centred (her centre line is the middle of the model's bounding
+// box) and the camera level with the target looking right at her, so the face and the signing hand are both visible.
+function frameUpperBody(root) {
+  const centerX = new THREE.Box3().setFromObject(root).getCenter(new THREE.Vector3()).x;
+  controls.target.set(centerX, 1.45, 0);
+  camera.position.set(centerX, 1.45, 1.45);
   camera.near = 0.01;
   camera.far = 100;
   camera.updateProjectionMatrix();
@@ -98,7 +100,7 @@ loader.load(
   MODEL_URL,
   (gltf) => {
     scene.add(gltf.scene);
-    frameUpperBody();
+    frameUpperBody(gltf.scene);
     for (const k of ['openAngle', 'closedAngle', 'scale']) if (params.has(k)) BLINK_CONFIG[k] = +params.get(k);
     morphs = createMorphs(gltf.scene);
     tweaks = createTweaks(gltf.scene, { weight: (side) => (side === 'L' ? handsL : hands)?.weight ?? 0, morphs }); // before anything poses the rig

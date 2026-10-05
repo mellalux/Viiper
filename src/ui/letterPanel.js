@@ -40,7 +40,7 @@ export function createLetterPanel(letters, { onPress, onRelease }) {
   panel.className = 'letter-panel';
   panel.innerHTML = `
     <div class="letter-panel__bar">
-      <span class="letter-panel__title">Tähestik</span>
+      <span class="letter-panel__title">Sõrmendid</span>
       <span class="letter-panel__grip">⋮⋮</span>
     </div>
     <div class="letter-panel__grid"></div>

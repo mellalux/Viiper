@@ -84,7 +84,11 @@ export function createViewControls({ camera, controls, home }) {
     if (!view) return;
     controls.target.copy(view.target);
     camera.position.copy(view.position);
+    // a drag still coasting (damping) must not carry the camera off the home view again
+    const damping = controls.enableDamping;
+    controls.enableDamping = false;
     controls.update();
+    controls.enableDamping = damping;
   });
 
   for (const view of VIEWS) {

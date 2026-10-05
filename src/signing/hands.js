@@ -64,6 +64,8 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 //   roll      degrees the hand turns about the finger axis (+ = thumb towards the back of the hand: the palm of a
 //             right hand held palm to the body turns up), as the palm turning over when offering something
 //   curl      0..1 added to the curl of all four fingers, as the fingers folding in a goodbye wave
+//   outer     added (-1..1) to the curl of the index and little finger only, as the two horns of a sign folding down or up
+//             while the middle and ring finger stay (the curls are clamped to 0..1 after adding)
 // The hand takes the path once, slowing at the corners, and then holds its last point.
 // `motion.stagger` (0 .. 0.33, optional) lets the fingers take the curl channel one after the other instead of together: each
 // finger starts that fraction of the path after the one before (index first) and all end together, as fingers rippling.
@@ -71,9 +73,9 @@ export const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the sta
 // Two equal letters in a row: the hand makes a small push forward and back (BUMP_DEPTH in arm lengths, +z = the character's front).
 export const BUMP_SECONDS = 0.3;
 const BUMP_DEPTH = 0.07;
-const CHANNELS = 7;
+const CHANNELS = 8;
 // what a unit of each channel counts for when a segment's length sets its share of the time (angles in degrees, curl in 0..1)
-const CHANNEL_WEIGHT = [1, 1, 1, 0.004, 0.004, 0.004, 0.2];
+const CHANNEL_WEIGHT = [1, 1, 1, 0.004, 0.004, 0.004, 0.2, 0.2];
 const smooth = (s) => s * s * (3 - 2 * s);
 
 /** The share (0..1) of the path's time each segment gets, in proportion to its length. */
@@ -185,12 +187,14 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   let frozenAt = null; // debug (?at=): hold the hand at this fraction (0..1) of its path
 
   const fingerPoint = new Array(CHANNELS).fill(0);
+  /** The curl a path point adds to finger `f` (index 0 .. little 3): the curl channel, and the outer channel for the index and little finger. */
+  const curlAt = (pt, f) => pt[6] + (f === 0 || f === 3 ? pt[7] : 0);
   /** The path at fraction `r`, into motion.off; the curl of each finger into motion.fingerCurl (staggered when the path says so). */
   const tracePath = (def, r) => {
     tracePoint(def.path, r, motion.off);
     const gap = Math.min(Math.max(def.stagger ?? 0, 0), 1 / 3);
     for (let f = 0; f < 4; f++) {
-      motion.fingerCurl[f] = gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint)[6] : motion.off[6];
+      motion.fingerCurl[f] = curlAt(gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint) : motion.off, f);
     }
   };
   const stepMotion = (dt, k) => {
@@ -205,7 +209,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       if (motion.paused) motion.t = 0;
       if (motion.paused) bumpT = null;
       for (let c = 0; c < CHANNELS; c++) motion.off[c] *= motion.paused ? 0 : 1 - k;
-      motion.fingerCurl.fill(motion.off[6]);
+      for (let f = 0; f < 4; f++) motion.fingerCurl[f] = curlAt(motion.off, f);
       return;
     }
     motion.t += Math.min(dt, 0.05); // a stalled frame must not skip the drawing
@@ -213,7 +217,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       // the hand gets to the first point of the path (the pose itself, unless the path starts elsewhere: a sign that begins at the forehead)
       const first = tracePoint(def.path, 0, fingerPoint);
       for (let c = 0; c < CHANNELS; c++) motion.off[c] = first[c] + (motion.from[c] - first[c]) * (1 - smooth(motion.t / MOTION_LEAD));
-      motion.fingerCurl.fill(motion.off[6]);
+      for (let f = 0; f < 4; f++) motion.fingerCurl[f] = curlAt(motion.off, f);
     } else tracePath(def, (motion.t - MOTION_LEAD) / def.duration);
   };
 

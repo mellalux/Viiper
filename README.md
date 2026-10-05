@@ -71,6 +71,8 @@ On the dev server the **Peenhäälestus** button (top right) opens one horizonta
 - click or drag in the ruler or between the tracks to move the playhead; double-click a track (or *+ Punkt*) to add a point there; *− Punkt* removes the selected one;
 - the points sit where the character reaches them: each segment gets a share of the *Kestus* in proportion to its length, so changing a point also moves the ones after it. *Hajutus* (`stagger`) lets the fingers take the curl channel one after the other.
 
+**Undo:** *↶ Tagasi* / *↷ Uuesti* in the bar (or Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y) step through every edit, sign definitions and bone tweaks alike, and go back to the sign and hand that was edited. A slider drag or a typed number is one step: it is recorded when the slider is let go or the field loses focus. *Lae failist* can be undone too; saving to the files starts the history over.
+
 Edits are kept in `localStorage` as a working copy. To commit them, press **Salvesta faili**. It asks for the PIN and writes the changed sign definitions and bone tweaks into [src/data/fingerspelling.json](src/data/fingerspelling.json) (letters) or [src/data/words.json](src/data/words.json) (word signs), whichever file holds the sign (the signs' notes are kept; the files are rewritten in the compact layout). It works **only on the dev server**. *Lähtesta märk* sends the sign's definition back to what the file holds; *Lae failist* drops the whole working copy.
 
 ### Fixing a sign that looks wrong

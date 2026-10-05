@@ -39,6 +39,7 @@ const CHANNELS = [
   { id: 'flex', unit: '°', step: 1, min: 30, color: '#ffd166', title: 'flex: randme painutus (°), sõrmeotsad peopesa (+) või käeselja (−) poole' },
   { id: 'roll', unit: '°', step: 1, min: 30, color: '#f78c6c', title: 'roll: käelaba keeramine sõrmede telje ümber (°)' },
   { id: 'curl', step: 0.01, min: 1, color: '#9aa5ff', title: 'curl: kõigi sõrmede lisapainutus (0…1)' },
+  { id: 'outer', step: 0.01, min: 1, color: '#7fdbd0', title: 'outer: ainult nimetis- ja väikese sõrme lisapainutus (-1…1), nagu sarvede sirgumine' },
 ];
 // timeline geometry (px)
 const TL = { gutter: 84, right: 12, ruler: 20, row: 21 };
@@ -227,6 +228,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       <span class="fd__title">Peenhäälestus</span>
       <span class="fd__current" data-role="current"></span>
       <span class="fd__status" data-role="status"></span>
+      <button data-role="undo" title="Võta viimane muudatus tagasi (Ctrl+Z)">↶ Tagasi</button>
+      <button data-role="redo" title="Tee tagasivõetud muudatus uuesti (Ctrl+Shift+Z või Ctrl+Y)">↷ Uuesti</button>
       <button data-role="reset-sign" title="Märgi viipe seaded (käe asend, sõrmed, liikumine) tagasi sellele, mis failis on">Lähtesta märk</button>
       <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb seaded failidest">Lae failist</button>
       <button data-role="save-file" class="fd__primary" title="Kirjutab muudatused faili fingerspelling.json / words.json (ainult dev-serveris)">Salvesta faili</button>
@@ -248,8 +251,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   // typing in the fields must not reach the letter shortcuts
   dock.addEventListener('keydown', (e) => e.stopPropagation());
   dock.addEventListener('keyup', (e) => e.stopPropagation());
+  // letting go of a slider (change) or the focus leaving it or a field (focusout) ends the gesture: the next edit is a new undo step
+  dock.addEventListener('change', () => endGesture());
+  dock.addEventListener('focusout', () => endGesture());
 
   const statusEl = $('status');
+  const undoBtn = $('undo');
+  const redoBtn = $('redo');
   const currentEl = $('current');
   const saveBtn = $('save-file');
   const resetSignBtn = $('reset-sign');
@@ -298,19 +306,97 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     resetSignBtn.disabled = !key || !dirtySigns.has(key);
     refreshChips(new Set([...signs, ...bones]));
   }
-  /** A sign's definition changed (or its motion): store it, show it, update the marks. */
-  function changed() {
+  /** A sign's definition changed (or its motion): store it, show it, update the marks. `id` names a continuous gesture (see commit). */
+  function changed(id) {
     stopPlay(false);
     recheck(key);
     defs.persist();
     show(key);
     freeze(scrub);
+    commit(id);
     updateStatus();
   }
-  function bonesChanged() {
+  function bonesChanged(id) {
     saveTweaks();
+    commit(id);
     updateStatus();
   }
+
+  // ---------------------------------------------------------------- undo / redo
+  // Every edit, sign definitions and bone tweaks alike, leaves a snapshot of the whole working copy (the changed signs'
+  // definitions and the tweaks). Undo goes back to the sign that was edited and puts the snapshot before the edit back.
+  // Edits with the same `id` in a row (a slider being dragged, a number being typed) count as one step, however long they
+  // take: the gesture ends when the slider is let go or the field loses focus (see endGesture). No id: one step each.
+  const HISTORY_MAX = 200;
+  const snapshot = () => canon({ defs: Object.fromEntries([...dirtySigns].map((k) => [k, defs.currentDef(k)])), tweaks: tweaks.export() });
+  const undoStack = []; // { snap, key, hand }: the state before the edit, and where it was made
+  const redoStack = [];
+  let last = null; // the state after the latest edit
+  let lastEdit = { id: null };
+  const endGesture = () => (lastEdit.id = null);
+  function commit(id) {
+    const snap = snapshot();
+    if (snap === last) return;
+    if (!id || id !== lastEdit.id) {
+      undoStack.push({ snap: last, key, hand });
+      if (undoStack.length > HISTORY_MAX) undoStack.shift();
+    }
+    redoStack.length = 0;
+    last = snap;
+    lastEdit = { id };
+    syncHistory();
+  }
+  function syncHistory() {
+    undoBtn.disabled = !undoStack.length;
+    redoBtn.disabled = !redoStack.length;
+  }
+  /** The files now hold the working copy: older snapshots would be measured against a different baseline. */
+  function clearHistory() {
+    undoStack.length = 0;
+    redoStack.length = 0;
+    last = snapshot();
+    endGesture();
+    syncHistory();
+  }
+  function step(from, to) {
+    const entry = from.pop();
+    if (!entry) return;
+    to.push({ snap: last, key: entry.key, hand: entry.hand });
+    const s = JSON.parse(entry.snap);
+    stopPlay(false);
+    for (const k of new Set([...dirtySigns, ...Object.keys(s.defs)])) defs.applyDef(k, s.defs[k] ?? defs.baselineDef(k));
+    tweaks.load(s.tweaks);
+    recheckAll();
+    defs.persist();
+    saveTweaks();
+    last = entry.snap;
+    endGesture();
+    if (entry.key && entry.key !== key) pick(entry.key); // show what is being undone
+    hand = entry.hand === 'L' && !sign()?.left ? 'R' : entry.hand;
+    renderHand();
+    refreshBone();
+    show(key);
+    freeze(scrub);
+    updateStatus();
+    syncHistory();
+  }
+  const undo = () => step(undoStack, redoStack);
+  const redo = () => step(redoStack, undoStack);
+  undoBtn.addEventListener('click', undo);
+  redoBtn.addEventListener('click', redo);
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y anywhere while the dock is open, except in the search field (its own text undo)
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!isOpen || !(e.ctrlKey || e.metaKey) || e.altKey || e.target.type === 'search') return;
+      const k = e.key.toLowerCase();
+      if (k !== 'z' && k !== 'y') return;
+      e.preventDefault();
+      e.stopPropagation();
+      (k === 'y' || e.shiftKey ? redo : undo)();
+    },
+    true,
+  );
 
   // ---------------------------------------------------------------- block: sign
   const search = input('search', { placeholder: 'Otsi sõrmendit või viipet…', className: 'fd__search', autocomplete: 'off', spellcheck: false });
@@ -383,6 +469,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   }
 
   // ---------------------------------------------------------------- building blocks for the sliders
+  let sliderSeq = 0; // each slider's own undo gesture id
   function slider(parent, label, min, max, step, get, set, unit = '', axis = false) {
     const row = el('label', `fd__slider${axis ? ' fd__slider--axis' : ''}`);
     const range = input('range', { min, max, step });
@@ -390,10 +477,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const fmt = (v) => `${round(+v, step)}${unit}`;
     range.value = get();
     out.textContent = fmt(range.value);
+    const id = `slider${++sliderSeq}`;
     range.addEventListener('input', () => {
       set(+range.value);
       out.textContent = fmt(range.value);
-      changed();
+      changed(id);
     });
     row.append(el('span', '', label), range, out);
     parent.appendChild(row);
@@ -503,7 +591,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       const h = handOf(hand);
       const target = new Map(h.boneList.map((b) => [b, b.quaternion.clone()]));
       const read = h.readPose();
-      undoSnapshot = tweaks.export();
       p.thumb ??= 'rest';
       p.dir ??= defaultDir();
       p.curl = read.curl;
@@ -512,7 +599,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       p.orient = { ...read.orient };
       const named = ORIENT[p.dir]?.maxBend ?? HAND_CONFIG.maxWristBend;
       if (read.bend > named) p.orient.maxBend = Math.min(Math.ceil(read.bend) + 1, 120);
-      changed(); // shows the sign: the bones are now in its own pose, without tweaks
+      const act = `finger-data:${key}:${hand}`; // the definition and the tweaks below are one step
+      changed(act); // shows the sign: the bones are now in its own pose, without tweaks
       let moved = 0;
       for (const e of tweaks.bones) {
         const was = target.get(e.bone);
@@ -524,9 +612,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
         tweaks.set(k, e.name, { rot, pos: tweaks.get(k, e.name).pos });
         if (rot.some((r) => r !== 0)) moved++;
       }
-      copyUndo.disabled = false;
       copyNote.textContent = `Käe asend ja sõrmed võeti praegusest poosist${moved ? `; ${moved} luu erinevus jäi luude seadetesse` : ''}.`;
-      bonesChanged();
+      bonesChanged(act);
       refreshBone();
       renderHand();
     });
@@ -573,7 +660,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
           p[field] ??= [0, 0, 0, 0];
           p[field][i] = +range.value;
           out.textContent = String(round(+range.value, step));
-          changed();
+          changed(`${field}${i}:${key}:${hand}`);
         });
         cell.append(range, out);
         grid.appendChild(cell);
@@ -776,17 +863,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   // mirrored bones: rotation about local X keeps its sign, Y and Z flip (Rigify mirrors with local X negated); X position flips
   // (a shape key's weight is the same on both sides)
   const mirrored = (v) => v && ('w' in v ? { w: v.w } : { rot: [v.rot[0], -v.rot[1], -v.rot[2]], pos: [-v.pos[0], v.pos[1], v.pos[2]] });
-  const writeBone = (e, value) => {
+  const writeBone = (e, value, id) => {
     tweaks.set(editKey(), e.name, value);
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
-    bonesChanged();
+    bonesChanged(id);
   };
   boneSliders.forEach(({ range }) =>
     range.addEventListener('input', () => {
       const e = sel();
       if (!e || !key) return;
       const x = boneSliders.map((s) => +s.range.value);
-      writeBone(e, e.shape ? { w: x[0] } : { rot: x, pos: tweaks.get(editKey(), e.name).pos }); // the position offset stays as it is
+      writeBone(e, e.shape ? { w: x[0] } : { rot: x, pos: tweaks.get(editKey(), e.name).pos }, `bone:${e.name}:${key}`); // the position offset stays as it is
       refreshBone();
     }),
   );
@@ -839,8 +926,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   copyScope.add(new Option('Valitud rühm', 'group'));
   copyScope.add(new Option('Valitud luu / vorm', 'bone'));
   const copyApply = el('button', '', 'Kopeeri siia');
-  const copyUndo = el('button', '', 'Võta tagasi');
-  copyUndo.disabled = true;
   const copyNote = el('div', 'fd__note');
   {
     const r1 = el('label', 'fd__row');
@@ -848,11 +933,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const r2 = el('label', 'fd__row');
     r2.append(el('span', '', 'Mida'), copyScope);
     const buttons = el('div', 'fd__buttons');
-    buttons.append(copyApply, copyUndo);
+    buttons.append(copyApply);
     blockCopy.append(el('div', 'fd__h', 'Kopeeri teisest märgist'), r1, r2, buttons, copyNote);
   }
-  // one step of undo, for copying and for loading from the files
-  let undoSnapshot = null;
   copyApply.addEventListener('click', () => {
     const from = copyFrom.value;
     const to = key;
@@ -865,21 +948,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const names =
       scope === 'bone' ? [e.name, ...(mirrorBox.checked && e.mirrorName ? [e.mirrorName] : [])]
       : items.filter((x) => scope === 'all' || x.group === groupSel.value).map((x) => x.name);
-    undoSnapshot = tweaks.export();
     const { copied, cleared } = tweaks.copy(from, to, names);
     bonesChanged();
     refreshBone();
-    copyUndo.disabled = false;
     copyNote.textContent = copied || cleared ? `Kopeeritud ${letterLabel(from)} → ${letterLabel(to)}: ${copied} kirjet${cleared ? `, ${cleared} eemaldatud` : ''}.` : `${letterLabel(from)} ja ${letterLabel(to)} ei erine selles ulatuses (või pole siin märgipõhiseid kirjeid).`;
-  });
-  copyUndo.addEventListener('click', () => {
-    if (!undoSnapshot) return;
-    tweaks.load(undoSnapshot);
-    undoSnapshot = null;
-    copyUndo.disabled = true;
-    bonesChanged();
-    refreshBone();
-    copyNote.textContent = 'Tagasi võetud.';
   });
 
   // ---------------------------------------------------------------- the bar: reset, load, save
@@ -892,7 +964,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   $('load-file').addEventListener('click', () => {
     const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState;
     if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded failidest? Salvestamata muudatused lähevad kaduma.')) return;
-    undoSnapshot = tweaks.export();
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
@@ -900,12 +971,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     for (const k of [...dirtySigns]) defs.resetSign(k);
     recheckAll();
     defs.persist();
-    copyUndo.disabled = false;
-    copyNote.textContent = 'Laetud failidest, töökoopia kustutatud (tweaks saab tagasi võtta).';
+    copyNote.textContent = 'Laetud failidest, töökoopia kustutatud (Ctrl+Z võtab tagasi).';
     renderHand();
     refreshBone();
     show(key);
     freeze(scrub);
+    commit();
     updateStatus();
   });
   saveBtn.addEventListener('click', async () => {
@@ -936,6 +1007,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
         base = fingerprint(fileState);
         saveTweaks(); // now equal to the files, so the working copy is dropped
       }
+      clearHistory(); // the files are the baseline now
       saveBtn.textContent = 'Salvestatud ✓';
     } catch (err) {
       console.warn('Could not save', err);
@@ -1009,7 +1081,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     const dur = input('number', { min: 0.2, max: 10, step: 0.1, value: m.duration });
     dur.addEventListener('input', () => {
       m.duration = Math.max(0.2, +dur.value || 1);
-      changed();
+      changed(`duration:${key}:${hand}`);
       drawTimeline();
     });
     const durLabel = el('label');
@@ -1020,7 +1092,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
       const v = clamp(+stagger.value || 0, 0, 0.33);
       if (v) m.stagger = v;
       else delete m.stagger;
-      changed();
+      changed(`stagger:${key}:${hand}`);
     });
     const staggerLabel = el('label');
     staggerLabel.append(el('span', '', 'Hajutus'), stagger);
@@ -1045,7 +1117,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
         while (point.length <= i) point.push(0);
         point[i] = Number.isFinite(+field.value) ? +field.value : 0;
         trim(point);
-        changed();
+        changed(`point:${key}:${hand}:${selPoint}:${i}`);
         fit();
         drawTimeline();
       });
@@ -1172,7 +1244,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     point[drag.c] = Math.round(point[drag.c] * 1000) / 1000;
     trim(point);
     ranges[drag.c] = drag.range; // the track keeps its scale until the dot is let go
-    changed();
+    changed(`dot:${key}:${hand}:${drag.p}:${drag.c}`);
     fillPointInputs();
     drawTimeline();
   });
@@ -1180,6 +1252,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
     if (!drag) return;
     const wasDot = drag.type === 'dot';
     drag = null;
+    endGesture();
     if (wasDot) {
       fit(); // now the track may rescale
       drawTimeline();
@@ -1249,6 +1322,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   function setSign(next) {
     if (!SIGNS[next] || next === key) return;
     stopPlay(false);
+    endGesture();
     key = next;
     if (hand === 'L' && !sign()?.left) hand = 'R';
     currentEl.textContent = letterLabel(key);
@@ -1326,6 +1400,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, letters,
   $('close').addEventListener('click', close);
 
   // ---------------------------------------------------------------- start
+  last = snapshot(); // the working copy as restored from the browser: the first edit's "before"
+  syncHistory();
   filterChips();
   fillBones();
   refreshBone();
