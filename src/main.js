@@ -7,6 +7,7 @@ import { BLINK_CONFIG, createBlinker } from './character/blink.js';
 import { LETTERS, createMouth } from './character/mouth.js';
 import { createLetterPanel } from './ui/letterPanel.js';
 import { createTextPanel } from './ui/textPanel.js';
+import { createSignBrowser } from './ui/signBrowser.js';
 import { SIGNS, STANDBY, WORD_FORMS, MOTION_LEAD, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
 import { createMorphs } from './character/morphs.js';
 import { createGaze } from './character/gaze.js';
@@ -236,6 +237,16 @@ createTextPanel(Object.keys(LETTERS), {
 });
 
 const WORD_SIGNS = new Set(Object.values(WORD_FORMS));
+
+// Sign viewer: search, alphabetical list and A-Z strip; a clicked sign is shown (and repeated, if ticked).
+createSignBrowser([...WORD_SIGNS], {
+  aliases: WORD_FORMS,
+  alphabet: Object.keys(LETTERS),
+  holdMs: (sign) => (SIGNS[sign]?.motion ? (MOTION_LEAD + SIGNS[sign].motion.duration) * 1000 + 250 : 450),
+  onPress: press,
+  onRelease: release,
+  onFinish: () => say(null),
+});
 
 // text: what was typed for a word sign (an alias such as "PALJU ÕNNE"), which the mouth then says; defaults to the sign's own word
 function say(letter, text = letter) {

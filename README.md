@@ -120,6 +120,7 @@ src/
     draggable.js        draggable, position-remembering panels
     letterPanel.js      letter buttons
     viewControls.js     camera panel
+    signBrowser.js      sign viewer: search, alphabetical list, A-Z strip, repeat checkbox
     fineTuner.js        fine-tuning window: sign search, hand pose, fingers, bones, motion timeline
     pin.js              the save PIN dialog
 ```
