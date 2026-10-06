@@ -82,9 +82,9 @@ export function createLimits(root) {
   }
 
   const api = {
-    /** Clamp every finger joint; call after the tweaks. `force`: even when the clamping is switched off (the limits editor's preview). */
-    apply(force = false) {
-      if (!enabled && !force) return;
+    /** Clamp every finger joint; call after the tweaks. */
+    apply() {
+      if (!enabled) return;
       for (const j of joints) limit(j, true);
     },
     /** Debug: which joints are outside their range right now, without changing anything: [{ bone, curl, spread, twist }] in degrees of excess. */
@@ -194,7 +194,7 @@ export function createBoneLimits(root) {
   const byName = new Map();
   root.traverse((bone) => {
     if (!bone.isBone) return;
-    const e = { name: bone.name, bone, rest: bone.quaternion.clone(), restP: bone.position.clone(), range: null, excess: [0, 0, 0] };
+    const e = { name: bone.name, bone, rest: bone.quaternion.clone(), range: null, excess: [0, 0, 0] };
     list.push(e);
     byName.set(e.name, e);
   });
@@ -202,9 +202,6 @@ export function createBoneLimits(root) {
   let foreign = {}; // entries for bones this model doesn't have: kept untouched so saving never drops them
   let active = []; // the bones that have a range
   let enabled = true;
-  let editing = false; // the limits editor is open: the rig shows the rest pose plus the rotations tried by hand (applyEdit)
-  let preview = false; // ... and the limits are applied to that pose, to see what they do
-  const tried = new Map(); // bone name -> [x, y, z] degrees, Euler XYZ from the rest pose
   const eul = new THREE.Euler();
   const q = new THREE.Quaternion();
   const restInv = new THREE.Quaternion();
@@ -242,45 +239,9 @@ export function createBoneLimits(root) {
     },
     /** How far the last apply() had to turn the bone back, degrees [x, y, z] (0 where it was within its range). */
     excess: (name) => byName.get(name)?.excess ?? [0, 0, 0],
-    /** The limits editor: while on, the page shows the rest pose (see applyEdit) instead of signing. */
-    get editing() {
-      return editing;
-    },
-    setEditing(on) {
-      editing = !!on;
-      tried.clear();
-      for (const e of list) e.excess.fill(0);
-    },
-    get preview() {
-      return preview;
-    },
-    set preview(on) {
-      preview = !!on;
-    },
-    /** Turn a bone by hand: degrees [x, y, z] from its rest pose, no limits (all zero removes it). */
-    setPose(name, rot) {
-      if (!byName.has(name)) return;
-      if (rot.every((x) => x === 0)) tried.delete(name);
-      else tried.set(name, [...rot]);
-    },
-    pose: (name) => [...(tried.get(name) ?? [0, 0, 0])],
-    /** Forget the tried rotations of these bones (all of them when no names are given). */
-    clearPose(names) {
-      if (names) for (const n of names) tried.delete(n);
-      else tried.clear();
-    },
-    /** Every bone back to its rest pose, then the rotations tried by hand. Call every frame instead of posing the rig while editing. */
-    applyEdit() {
-      for (const e of list) {
-        e.bone.quaternion.copy(e.rest);
-        e.bone.position.copy(e.restP);
-        const r = tried.get(e.name);
-        if (r) e.bone.quaternion.multiply(q.setFromEuler(eul.set(r[0] * D2R, r[1] * D2R, r[2] * D2R, 'XYZ')));
-      }
-    },
     /** Clamp every bone that has a range; call last in the frame, after everything else has posed the rig. */
-    apply(force = false) {
-      if (!enabled && !force) return;
+    apply() {
+      if (!enabled) return;
       for (const e of active) {
         relative(e);
         const v = [eul.x, eul.y, eul.z];

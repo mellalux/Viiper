@@ -196,19 +196,6 @@ timer.connect(document); // ignores the time spent in a hidden tab, so dt doesn'
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = timer.getDelta();
-  // The limits editor: the model stands in its rest pose (no animation, signs, tweaks or expressions), only the bones turned by hand move.
-  if (boneLimits?.editing) {
-    boneLimits.applyEdit();
-    morphs?.reset();
-    if (boneLimits.preview) {
-      limits?.apply(true);
-      boneLimits.apply(true);
-    }
-    fineTuner?.update();
-    controls.update();
-    renderer.render(scene, camera);
-    return;
-  }
   mixer?.update(dt);
   if (!params.has('blink')) blinker?.update(dt);
   // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
@@ -292,7 +279,6 @@ function release() {
 
 let heldKey = null;
 window.addEventListener('keydown', (e) => {
-  if (boneLimits?.editing) return; // no signs in the limits editor
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'SELECT') return;
   if (e.key === 'Escape') return say(null);
   const letter = e.key.toUpperCase();

@@ -58,7 +58,7 @@ function checkDef(def, isLeft = false) {
       k === 'curl' || k === 'spread' || k === 'knuckle' ? nums(v, 4)
       : k === 'thumb' || k === 'dir' ? typeof v === 'string'
       : k === 'orient' ? isObject(v) && Object.entries(v).every(([f, x]) => (f === 'maxBend' ? typeof x === 'number' && Number.isFinite(x) : ['finger', 'thumb', 'reach', 'pole'].includes(f) && nums(x, 3)))
-      : k === 'motion' ? isObject(v) && Array.isArray(v.path) && v.path.length >= 2 && v.path.every((pt) => nums(pt) && pt.length >= 2 && pt.length <= 7) && typeof v.duration === 'number' && v.duration > 0
+      : k === 'motion' ? isObject(v) && Array.isArray(v.path) && v.path.length >= 2 && v.path.every((pt) => nums(pt) && pt.length >= 2 && pt.length <= 8) && typeof v.duration === 'number' && v.duration > 0
       : isObject(v) && (checkDef(v, true), true);
     if (!ok) throw new Error(`bad value for "${k}"`);
   }

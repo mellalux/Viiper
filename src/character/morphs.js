@@ -25,10 +25,6 @@ export function createMorphs(root) {
       layers.get(layer).set(name, value);
       touched.add(name);
     },
-    /** Put every shape that some layer has written to 0 on the meshes (the layers keep their weights; the next flush() restores the sum). */
-    reset() {
-      for (const name of touched) for (const { influences, index } of targets.get(name)) influences[index] = 0;
-    },
     /** Write the summed weights to the meshes; call once per frame after all drivers have run. */
     flush() {
       for (const name of touched) {
