@@ -13,7 +13,7 @@ import { detectRig } from '../character/rigs.js';
 // arm); `global.<bone>` always applies (body). The other arm only ever waits in standby, so its tweaks sit under
 // the standby sign. Format of one entry: { "rot": [x, y, z], "pos": [x, y, z] }, either part optional.
 // Shape keys (face morph targets) work the same way: `{ "w": 0.3 }` adds that weight to the shape while the sign is shown.
-export const GLOBAL = '*';
+const GLOBAL = '*';
 
 export const GROUPS = [
   { id: 'right', label: 'Parem käsi' },
@@ -28,7 +28,6 @@ const num3 = (a) => (Array.isArray(a) && a.length === 3 && a.every(Number.isFini
 
 /** Normalise one stored entry; null when it holds nothing (or is malformed). */
 function clean(e) {
-  if (Array.isArray(e)) e = { rot: e }; // the first editor version stored a bare [x, y, z] rotation
   if (!e || typeof e !== 'object') return null;
   const rot = num3(e.rot);
   const pos = num3(e.pos);
@@ -153,7 +152,6 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     bones,
     /** [{ name, group: 'shapes', mirrorName }] for the shape keys worth tuning (none on rigs without shape keys). */
     shapes,
-    byName,
     /** Key a bone's tweak is stored under when `letter` is the sign being edited. */
     keyOf: (name, letter) => keyOf(byName.get(name), letter),
     get(key, name) {

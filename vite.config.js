@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { SIGN_FIELDS, SIGN_NAME } from './src/signing/signFormat.js';
 
 // Dev-only: lets the fine-tuning window's "Salvesta faili" button write its tweaks into src/data/fingerspelling.json (letters)
 // and src/data/words.json (word signs): every sign's tweaks go to the file that holds that sign.
@@ -35,25 +36,21 @@ const sign = (s, depth) => {
   // (an undefined sign has no base fields, only tweaks)
   return `{\n${fields ? `${pad(depth + 1)}${fields},\n` : ''}${pad(depth + 1)}"tweaks": ${block(tweaks, depth + 1, inline)}\n${pad(depth)}}`;
 };
-export const serialize = (data) =>
+const serialize = (data) =>
   `${block(data, 0, (v, depth, key) => (key === 'signs' ? block(v, depth, sign) : block(v, depth, inline)))}\n`;
 
 // limits.json: the notes, then one finger joint / one bone per line
-export const serializeLimits = (data) => `${block(data, 0, (v, depth, key) => (key === 'bones' || key === 'finger' ? block(v, depth, inline) : inline(v)))}\n`;
-
-// the name of a new word sign (the same rule as signDefs.js)
-const SIGN_NAME = /^[\p{L}\p{N}][\p{L}\p{N} -]{1,39}$/u;
+const serializeLimits = (data) => `${block(data, 0, (v, depth, key) => (key === 'bones' || key === 'finger' ? block(v, depth, inline) : inline(v)))}\n`;
 
 const isObject = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
-// A sign's definition (what the fine-tuning window saves). The fields a sign may have, in the order they are written; `note` and
-// `tweaks` are not part of it and stay as they are in the file.
-const DEF_FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'];
+// A sign's definition (what the fine-tuning window saves): the fields in SIGN_FIELDS (signFormat.js, in the order they are written);
+// `note` and `tweaks` are not part of it and stay as they are in the file.
 const nums = (a, n) => Array.isArray(a) && (n === undefined || a.length === n) && a.every((x) => typeof x === 'number' && Number.isFinite(x));
 function checkDef(def, isLeft = false) {
   if (!isObject(def)) throw new Error('a sign definition must be an object');
   for (const [k, v] of Object.entries(def)) {
-    if (!DEF_FIELDS.includes(k) || (isLeft && k === 'left')) throw new Error(`unknown field "${k}"`);
+    if (!SIGN_FIELDS.includes(k) || (isLeft && k === 'left')) throw new Error(`unknown field "${k}"`);
     const ok =
       k === 'curl' || k === 'spread' || k === 'knuckle' ? nums(v, 4)
       : k === 'thumb' || k === 'dir' ? typeof v === 'string'
@@ -176,7 +173,7 @@ const saveSignTweaks = () => {
           const old = data.signs[key];
           const next = {};
           if (old.note !== undefined) next.note = old.note;
-          for (const f of DEF_FIELDS) if (def[f] !== undefined) next[f] = def[f];
+          for (const f of SIGN_FIELDS) if (def[f] !== undefined) next[f] = def[f];
           if (old.tweaks) next.tweaks = old.tweaks;
           data.signs[key] = next;
         }
@@ -222,8 +219,20 @@ const saveSignTweaks = () => {
   };
 };
 
+// The `note` fields of the data files are for people reading the JSON (the fine-tuning window shows the orient notes, dev
+// server only): the production bundle leaves them out.
+const stripNotes = () => ({
+  name: 'strip-json-notes',
+  apply: 'build',
+  enforce: 'pre',
+  transform(code, id) {
+    if (!/[\\/]src[\\/]data[\\/][^\\/]+\.json$/.test(id.split('?')[0])) return null;
+    return JSON.stringify(JSON.parse(code), (k, v) => (k === 'note' && typeof v === 'string' ? undefined : v));
+  },
+});
+
 export default {
-  plugins: [saveSignTweaks()],
+  plugins: [saveSignTweaks(), stripNotes()],
   build: {
     chunkSizeWarningLimit: 900, // three.js alone is ~835 kB
     rolldownOptions: {

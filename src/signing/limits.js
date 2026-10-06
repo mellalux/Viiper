@@ -59,8 +59,8 @@ export function createLimits(root) {
     return [byLetter[LETTERS[curlAxis]] * j.signs[0], byLetter[LETTERS[spreadAxis]] * j.signs[1], byLetter[LETTERS[twistAxis]] * j.signs[2]];
   }
 
-  /** Clamp one joint; returns the excess in degrees per axis ([curl, spread, twist], zero where within the range) or null. */
-  function limit(j, apply) {
+  /** Clamp one joint and note its excess in degrees per axis ([curl, spread, twist], zero where within the range). */
+  function limit(j) {
     const range = table[j.joint];
     const value = measure(j);
     const byLetter = { X: eul.x, Y: eul.y, Z: eul.z };
@@ -68,33 +68,21 @@ export function createLimits(root) {
     const excess = clamped.map((c, i) => (value[i] - c) / D2R);
     if (!excess.some((x) => Math.abs(x) > 1e-3)) {
       j.excess.fill(0);
-      return null;
+      return;
     }
     j.excess = excess;
-    if (apply) {
-      byLetter[LETTERS[curlAxis]] = clamped[0] * j.signs[0];
-      byLetter[LETTERS[spreadAxis]] = clamped[1] * j.signs[1];
-      byLetter[LETTERS[twistAxis]] = clamped[2] * j.signs[2];
-      eul.set(byLetter.X, byLetter.Y, byLetter.Z, order);
-      j.bone.quaternion.copy(j.rest).multiply(q.setFromEuler(eul));
-    }
-    return excess;
+    byLetter[LETTERS[curlAxis]] = clamped[0] * j.signs[0];
+    byLetter[LETTERS[spreadAxis]] = clamped[1] * j.signs[1];
+    byLetter[LETTERS[twistAxis]] = clamped[2] * j.signs[2];
+    eul.set(byLetter.X, byLetter.Y, byLetter.Z, order);
+    j.bone.quaternion.copy(j.rest).multiply(q.setFromEuler(eul));
   }
 
   const api = {
     /** Clamp every finger joint; call after the tweaks. */
     apply() {
       if (!enabled) return;
-      for (const j of joints) limit(j, true);
-    },
-    /** Debug: which joints are outside their range right now, without changing anything: [{ bone, curl, spread, twist }] in degrees of excess. */
-    report() {
-      const out = [];
-      for (const j of joints) {
-        const e = limit(j, false);
-        if (e) out.push({ bone: j.name, curl: +e[0].toFixed(1), spread: +e[1].toFixed(1), twist: +e[2].toFixed(1) });
-      }
-      return out;
+      for (const j of joints) limit(j);
     },
     /** Switch the clamping off to pose the fingers freely (the ranges are kept). */
     get enabled() {
@@ -160,7 +148,7 @@ const AXIS_MAX = { x: 180, y: 90, z: 180 };
 const EPS = 1e-3;
 
 /** The ranges as limits.json holds them: { boneName: { x, y, z } }. */
-export const boneLimitsFromFile = () => structuredClone(limitsFile.bones ?? {});
+const boneLimitsFromFile = () => structuredClone(limitsFile.bones ?? {});
 
 /** Largest angle of an axis (180, but 90 for y), for the editor's number fields. */
 export const axisMax = (axis) => AXIS_MAX[axis];
@@ -211,8 +199,6 @@ export function createBoneLimits(root) {
   const relative = (e) => eul.setFromQuaternion(q.copy(restInv.copy(e.rest).invert()).multiply(e.bone.quaternion), 'XYZ');
 
   const api = {
-    /** Every bone of the model, in skeleton order. */
-    names: list.map((e) => e.name),
     /** Switch the clamping off to pose a bone freely (the ranges are kept). */
     get enabled() {
       return enabled;

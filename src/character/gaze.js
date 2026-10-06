@@ -8,7 +8,7 @@ import { detectRig } from './rigs.js';
 // The eye bones' own axes differ from rig to rig, so the turn is worked out in the bone's parent space as the rotation
 // from the rest look direction (the model's +Z, "forward") to the direction of the target, then applied on top of the
 // bone's rest rotation.
-export const GAZE_CONFIG = {
+const GAZE_CONFIG = {
   maxAngle: 20, // degrees an eye can turn away from straight ahead
   smoothing: 14, // higher = snappier
 };

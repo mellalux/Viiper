@@ -43,10 +43,6 @@ export function createTwist(root) {
         for (const t of s.bones) t.bone.quaternion.copy(t.rest).multiply(turn.setFromAxisAngle(Y, angle * t.fraction));
       }
     },
-    /** Debug: change a twist bone's fraction ({ boneName: fraction }). */
-    setFractions(map) {
-      for (const s of sides) for (const t of s.bones) for (const [name, f] of Object.entries(map)) if (t.bone.name.endsWith(name)) t.fraction = f;
-    },
     /** Debug: the hands' current twist in degrees, [R, L]. */
     angles: () => sides.map((s) => +(twistOf(s) * THREE.MathUtils.RAD2DEG).toFixed(0)),
   };

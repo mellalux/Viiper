@@ -22,7 +22,7 @@ Open the URL Vite prints (usually http://localhost:5173).
 - **Hold a letter key** (or press a button in the letter panel) to show that letter's hand sign and mouth shape. Release it and the mouth relaxes, while the hand stays in the sign until you press another letter or **Esc** (back to standby).
 - **Word signs** (typed in the text box) get mouthing too: the mouth goes through the word's letter shapes while the hand signs it (for an alias such as "PALJU ÕNNE", the words as typed).
 - Supported letters: `A–Z` as used in Estonian, including `Š Ž Õ Ä Ö Ü`. Some letters, such as `X` and `Q`, are two-handed.
-- **Drag** to orbit, **scroll** to zoom. The *Vaade* panel has zoom buttons, camera presets (front, back, sides, top, three-quarter) and a *signer's view*, which looks at the signing hand from just in front of the eyes, like the finger-spelling chart.
+- **Drag** to orbit, **scroll** to zoom. The *Vaade* panel has zoom buttons, and camera presets (front, back, sides, top, three-quarter).
 - **Word signs** live in [src/data/words.json](src/data/words.json): *tere, head aega, aitäh, palun, vabandust, jah, ei, hea, hästi, õnnitlema* (also typed as *palju õnne*), and the topic *Inimesed ja asesõnad*: *mina, sina, tema, meie, teie, teie viisakusvorm, nemad* (also *nad*), *inimene, nimi, ise, kõik*, and the question words *kes, mis, milline, kus, kuhu, kust, millal, miks, kuidas, kui palju* (also *mitu*), and the family and close ones *ema, isa, laps, poeg, tütar, vend, õde, vanaema, vanaisa, sõber*, and communication and learning *viipekeel, viiplema, kurt, kuulja, aru saama, teadma, küsima, vastama, kordama, õppima*, wishes and needs *tahtma, vajama, saama* (also *suutma*), *oskama, aitama, ootama, meeldima, armastama, andma, võtma*, and everyday actions *sööma, jooma, magama, ärkama, minema, tulema, tegema, töötama, mängima, pesema*, and the words that build a sentence *olema* (also *on*), *pole* (also *ei ole*), *ja, või, aga, ka, veel, juba, ainult, mitte, sest, kui, siis*, and the topics time, calendar, places, food and drink, feeling and health, and qualities: *praegu, täna, homme, eile, hommik, päev, õhtu, öö, enne, pärast, esmaspäev, teisipäev, kolmapäev, neljapäev, reede, laupäev, pühapäev, nädal, kuu, aasta, kodu, kool, lasteaed, töökoht, pood, haigla, apteek, tualett, õu, linn, vesi, piim, kohv, tee, leib, puder, supp, liha, kala, õun, rõõmus, kurb, väsinud, haige, terve, valu, nälg, janu, arst, ravim, suur, väike, halb, uus, vana, soe, külm, kiire, aeglane, siin, seal, üleval, all, sees, väljas, vasakul, paremal, lähedal, kaugel, telefon, arvuti, internet, video, raamat, paber, pliiats, laud, tool, uks, raha, hind, ostma, maksma, kallis, odav, buss, auto, pilet, peatus* (see the `signs` keys in words.json). Type the whole word or phrase into the text box and it is shown as one sign instead of letter by letter. While typing, a suggestion list of the known words appears (accents ignored; ↑/↓ and Enter or Tab, or a click, complete the word). They follow the EKI sign-language dictionary videos; the hand motions (waves, finger folding, palm turning, wrist nods) are `motion` paths, described in [src/signing/hands.js](src/signing/hands.js).
 - The eyes follow the mouse cursor (and look at the camera when the cursor leaves the page).
 - All panels are draggable by their title bar and remember where you left them.
@@ -32,10 +32,10 @@ Open the URL Vite prints (usually http://localhost:5173).
 The default model is `src/assets/models/Kati.glb`. Put more `.glb` files in that folder and load one with the `model` query parameter (the file name without `.glb`):
 
 ```
-http://localhost:5173/?model=ViiperGirl
+http://localhost:5173/?model=MyModel
 ```
 
-Two rig types are supported (see [src/character/rigs.js](src/character/rigs.js)): **Rigify** (bone-based face) and **Character Creator** (face made of shape keys). The rig is detected automatically from the bone names.
+Two rig types are supported (see [src/character/rigs.js](src/character/rigs.js)): **Rigify** (bone-based face) and **Character Creator** (face made of shape keys). The rig is detected automatically from the bone names. Only Kati, a Character Creator model, is in the repository; the Rigify code (lip bones, eyelid domes, the `?openAngle` / `?closedAngle` / `?scale` parameters) has no model to run against at the moment.
 If the model fails to load, a placeholder cube is shown.
 
 ### Debug query parameters
@@ -67,7 +67,7 @@ On the dev server the **Peenhäälestus** button (top right) opens one horizonta
   Below the sliders are the bone's **Pöörde piirid** (rotation limits, the same for every sign): a min and a max in degrees per axis, measured from the rest pose, the same axes as the *Pööre* sliders (Euler XYZ in the bone's own axes; blank = free; a range need not contain 0, a bone whose range lies away from its rest pose is held at the nearest end; Y only reaches ±90). *⇤* / *⇥* take the bone's current angle as the min / max, the angle on the right turns red while the limit holds the bone back, *Piirid kehtivad* switches the clamping off for free posing, and *Eemalda luu piirid* clears the bone. For a finger bone (index to little finger) the block also shows the **Sõrmeliigese piirid**: the curl (P), spread (L) and twist (V) limits of that joint kind (MCP, PIP or DIP), shared by that joint of every finger on both hands (`finger` in the same file); the thumb has no such table, limit its bones with X/Y/Z. The arms' twist helper bones (`…Twist01`, `…Twist02`) only turn about Y, their long axis: X and Z are locked for their limits. Every bone of the model can have limits; they apply to the final pose in every sign and motion (so also to what the hand code or the IK does), and the *Pööre* sliders stop at them: a bone that nothing else poses simply gets the limit as the slider's end; for the arms and fingers (posed by the hand code first) the slider stops at the point where the limit starts to hold the bone, for as long as it is being dragged. Saved with *Salvesta faili* in [src/data/limits.json](src/data/limits.json).
 - **Kopeeri teisest märgist:** copy bone tweaks from another sign (whole sign, the chosen group or the chosen bone), with one step of undo.
 
-**Timeline (*Liikumine*)** shows the sign's motion path, one track per channel (`x y z tilt flex roll curl`, see [src/signing/hands.js](src/signing/hands.js)). The character holds the sign at the playhead while you edit; *▶ Mängi* plays it. The points of the path are the dots:
+**Timeline (*Liikumine*)** shows the sign's motion path, one track per channel (`x y z tilt flex roll curl outer`, see [src/signing/hands.js](src/signing/hands.js)). The character holds the sign at the playhead while you edit; *▶ Mängi* plays it. The points of the path are the dots:
 
 - drag a dot up or down to change that channel of the point; the number fields next to *Punkt n/m* set it exactly;
 - click or drag in the ruler or between the tracks to move the playhead; double-click a track (or *+ Punkt*) to add a point there; *− Punkt* removes the selected one;
@@ -96,16 +96,17 @@ Writing is guarded by a PIN, which the dev server checks (see [vite.config.js](v
 ## Project layout
 
 ```
-index.html              entry page
-vite.config.js          Vite config + dev-only "save sign tweaks" plugin
+index.html              entry page (and the loading screen)
+vite.config.js          Vite config + dev-only "save sign tweaks" plugin + a build step that drops the JSON `note` fields
 public/                 static files served as-is
 src/
   main.js               scene, model loading, render loop, keyboard input
+  util.js               small shared helpers (canon, fingerprint, fold)
   assets/models/        .glb character models (bundled by Vite)
   data/
     shared.json         data shared by all kinds of signs: hand orientations,
                         thumb poses, visemes, letter → viseme table, per-rig data
-    fingerspelling.json the letters (curls, directions, motion) and saved tweaks
+    fingerspelling.json the letters (mostly bone tweaks; a few have motion) and the standby pose
     words.json          word signs, same format as the letters (key = upper-case word)
     limits.json         rotation limits of single bones (set in the fine-tuning window)
   character/            the model's face and eyes
@@ -119,13 +120,17 @@ src/
     tweaks.js           hand-tuned bone / shape offsets layered on top of poses
     limits.js           joint limits (limits.json): the fingers and any single bone
     signDefs.js         sign definitions edited in the fine-tuning window (baseline, working copy)
+    signFormat.js       the fields of a sign and the rule for a new sign's name (also read by vite.config.js)
     twist.js            shares the wrist twist over the forearm (skin)
     body.js             trunk / head collision shape (keeps arms out of the body)
   ui/                   panels
     draggable.js        draggable, position-remembering panels
+    panels.css          the look of the floating panels (shared box and title bar, then each panel)
     letterPanel.js      letter buttons
+    textPanel.js        text box: typed text is signed letter by letter or word by word, with suggestions
     viewControls.js     camera panel
     signBrowser.js      sign viewer: search, alphabetical list, A-Z strip, repeat checkbox
+    splash.js           the loading screen's progress bar (its markup is in index.html)
     fineTuner.js        fine-tuning window: sign search, hand pose, fingers, bones, motion timeline
     pin.js              the save PIN dialog
 ```
@@ -143,8 +148,10 @@ In `shared.json`:
 
 In `fingerspelling.json`:
 
-- `signs`: per letter, finger `curl` (0 straight to 1 fully curled), optional `spread` and `knuckle`, an `orient` (`dir`), a thumb pose, and optional `tweaks` from the fine-tuning window.
+- `signs`: per letter (and `ootel`, the standby pose), mostly just the `tweaks` made in the fine-tuning window: the rotation of arm and finger bones, which is what poses the hand. `left` (an empty `{}` is enough) lets the other hand take part in a letter. A letter can carry the same finger data as a word sign (`curl`, `spread`, `knuckle`, `thumb`, `dir`, `orient`), as U does; *Määra sõrmeandmed* in the editor adds it from the current pose. `motion` moves the hand (Z, Ž, Ä, Ü).
 - `global`: tweaks that always apply (body).
+
+`words.json` has the word signs, which are described by finger data (`curl` 0 straight to 1 fully curled, optional `spread` and `knuckle`, a thumb pose, an `orient` named in `dir`) and a `motion`, plus optional `tweaks`.
 
 Details are in the header comments of [src/signing/hands.js](src/signing/hands.js), [src/character/mouth.js](src/character/mouth.js) and [src/signing/tweaks.js](src/signing/tweaks.js).
 
@@ -159,5 +166,5 @@ Two safety nets run last every frame, on top of the signs and the hand-tuned off
 
 ## Notes
 
-- The Draco decoder used for compressed models is loaded from Google's CDN. To self-host it, copy `node_modules/three/examples/jsm/libs/draco/` to `public/draco/` and change the path in [src/main.js](src/main.js).
+- Models must be uncompressed or Meshopt-compressed (Kati is). Draco-compressed ones are not supported: to add that, import `DRACOLoader` in [src/main.js](src/main.js) and pass `new DRACOLoader()` to the loader with `setDRACOLoader` (three.js brings its decoder files along and Vite bundles them, no CDN needed; they add about 1.3 MB to `dist/`).
 - The editor UI is in Estonian.

@@ -1,27 +1,10 @@
-// Makes a fixed-position panel draggable by its title bar and remembers where it was left. The bar also gets a button that
+// Makes a floating panel (class `panel`; its title bar is `panel__bar` with a `panel__title` and a `panel__grip`, the look is in panels.css)
+// draggable by its title bar and remembers where it was left. The bar also gets a button that
 // collapses the panel to just the bar (remembered too; a double click on the bar does the same); the bar must be the panel's first child.
 // `defaultPosition` is called once (after the panel is in the DOM) when nothing is saved yet.
-const css = `
-/* the doubled class outranks the panels' own button styles */
-button.panel-collapse.panel-collapse {
-  flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
-  font: inherit; font-size: 12px; line-height: 1; color: #aaa; background: none; border: 1px solid transparent;
-}
-button.panel-collapse.panel-collapse:hover:not(:disabled) { color: #e8e8ec; background: rgba(255, 255, 255, 0.08); }
-.panel-collapse::before { content: '▾'; display: block; }
-.is-collapsed .panel-collapse::before { content: '▸'; }
-.is-collapsed > :not(:first-child) { display: none !important; }
-.is-collapsed { padding-bottom: 0 !important; height: auto !important; min-height: 0 !important; } /* a panel with a fixed height shrinks to the bar */
-.is-collapsed > :first-child { border-bottom-color: transparent !important; }
-`;
+import './panels.css';
 
 export function makeDraggable(panel, bar, storageKey, defaultPosition) {
-  if (!document.getElementById('panel-collapse-style')) {
-    const style = document.createElement('style');
-    style.id = 'panel-collapse-style';
-    style.textContent = css;
-    document.head.appendChild(style);
-  }
   // the visual size, so a panel scaled with a CSS transform (origin top left) still stays on screen
   const clamp = (x, y) => {
     const { width, height } = panel.getBoundingClientRect();

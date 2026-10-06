@@ -1,0 +1,146 @@
+/* The floating panels (letter panel, view panel, text box, sign viewer): one shared look, then what is special to each.
+   Imported by draggable.js, which every panel uses. (The fine-tuning window and the PIN dialog are dev-only and keep their
+   styles in their own modules, so the production build does not carry them.) */
+
+/* ---------------------------------------------------------------- shared by all panels: the box, the title bar, collapsing */
+/* the panel's box and title bar; :where() gives them no specificity, so a panel's own class (size, padding, z-index ...) always wins */
+:where(.panel) {
+  position: fixed; z-index: 10; border-radius: 12px; user-select: none; touch-action: none;
+  font: 13px system-ui, sans-serif; color: #e8e8ec;
+  background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
+}
+:where(.panel__bar) {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; cursor: grab; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.panel.is-dragging .panel__bar { cursor: grabbing; }
+:where(.panel__title) { font-weight: 600; letter-spacing: 0.02em; }
+:where(.panel__grip) { color: #888; letter-spacing: 2px; }
+/* the doubled class outranks the panels' own button styles */
+button.panel-collapse.panel-collapse {
+  flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  font: inherit; font-size: 12px; line-height: 1; color: #aaa; background: none; border: 1px solid transparent;
+}
+button.panel-collapse.panel-collapse:hover:not(:disabled) { color: #e8e8ec; background: rgba(255, 255, 255, 0.08); }
+.panel-collapse::before { content: '▾'; display: block; }
+.is-collapsed .panel-collapse::before { content: '▸'; }
+.is-collapsed > :not(:first-child) { display: none !important; }
+.is-collapsed { padding-bottom: 0 !important; height: auto !important; min-height: 0 !important; } /* a panel with a fixed height shrinks to the bar */
+.is-collapsed > :first-child { border-bottom-color: transparent !important; }
+
+/* ---------------------------------------------------------------- letter panel (letterPanel.js) */
+.letter-panel { padding: 0 0 10px; }
+.letter-panel__grid { display: grid; grid-template-columns: repeat(8, 38px); gap: 6px; padding: 10px 12px 0; }
+.letter-panel__key {
+  height: 38px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600;
+  color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.letter-panel__key:hover { background: #38383f; }
+.letter-panel__key.letter-panel__key--active { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
+.letter-panel__hint { padding: 8px 12px 0; color: #9a9aa5; font-size: 12px; line-height: 1.7; }
+.letter-panel__hint kbd {
+  padding: 1px 6px; border-radius: 4px; font: inherit; font-size: 11px; color: #e8e8ec;
+  background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* ---------------------------------------------------------------- view panel (viewControls.js) */
+.view-panel { width: 168px; }
+.view-panel__body { display: grid; gap: 10px; padding: 10px 12px 12px; }
+.view-panel__zoom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.view-panel__views { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.view-panel button {
+  height: 30px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+  color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.view-panel__zoom button { font-size: 17px; }
+.view-panel button:hover { background: #38383f; }
+.view-panel button:active { background: #2f9e6e; }
+
+/* ---------------------------------------------------------------- text box (textPanel.js) */
+.text-panel { width: 280px; padding: 0 0 12px; }
+.text-panel__form { position: relative; display: flex; gap: 6px; padding: 10px 12px 0; }
+.text-panel__menu {
+  position: absolute; z-index: 2; left: 12px; right: 54px; top: calc(100% + 2px); margin: 0; padding: 4px; list-style: none; border-radius: 8px;
+  background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+}
+.text-panel__menu[hidden] { display: none; }
+.text-panel__option { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 13px; }
+.text-panel__option:hover { background: #2c2c33; }
+.text-panel__option--active, .text-panel__option--active:hover { background: #2f9e6e; color: #fff; }
+.text-panel__alias { color: #8a8a95; font-size: 12px; }
+.text-panel__option--active .text-panel__alias { color: #d8f5e8; }
+.text-panel__input {
+  flex: 1; min-width: 0; height: 36px; box-sizing: border-box; padding: 0 10px; border-radius: 8px; user-select: text;
+  font: inherit; font-size: 14px; color: #e8e8ec; background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.text-panel__input:focus { outline: none; border-color: #5fd0a0; }
+.text-panel__input[readonly] { opacity: 0.6; }
+.text-panel__send {
+  width: 36px; height: 36px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 18px; line-height: 1;
+  color: #fff; background: #2f9e6e; border: 1px solid #5fd0a0;
+}
+.text-panel__send:hover { background: #38b07d; }
+.text-panel__send:disabled { opacity: 0.4; cursor: default; background: #2c2c33; border-color: rgba(255, 255, 255, 0.1); }
+.text-panel__send.text-panel__send--stop { background: #b04a4a; border-color: #e08a8a; }
+.text-panel__list {
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 5px; min-height: 36px; max-height: 140px; overflow-y: auto;
+  margin: 10px 12px 0; padding: 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.25);
+}
+.text-panel__empty { margin: auto 2px; color: #7a7a85; font-size: 12px; }
+.text-panel__chip {
+  min-width: 26px; height: 26px; box-sizing: border-box; padding: 0 6px; border-radius: 6px; text-align: center; line-height: 24px;
+  font-size: 13px; font-weight: 600; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.text-panel__chip--space { min-width: 0; width: 14px; padding: 0; background: none; border-color: transparent; color: #666; }
+.text-panel__chip--done { opacity: 0.35; }
+.text-panel__chip--current { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
+
+/* ---------------------------------------------------------------- sign viewer (signBrowser.js) */
+.sign-open {
+  position: fixed; z-index: 10; top: 16px; left: 50%; transform: translateX(-50%); padding: 7px 14px; border-radius: 10px; cursor: pointer;
+  font: 600 13px system-ui, sans-serif; color: #e8e8ec; background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
+}
+.sign-open:hover { background: rgba(44, 44, 51, 0.92); }
+.sign-box {
+  z-index: 11; width: 340px; height: min(560px, calc(100vh - 100px)); display: flex; flex-direction: column;
+  background: rgba(24, 24, 28, 0.92);
+}
+.sign-box[hidden] { display: none; }
+.sign-box__bar { flex: none; gap: 8px; }
+.sign-box button.sign-box__close {
+  flex: none; width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+  color: #aaa; background: none; border: 1px solid transparent;
+}
+.sign-box button.sign-box__close:hover { color: #e8e8ec; background: rgba(255, 255, 255, 0.08); }
+.sign-box__top { flex: none; display: grid; gap: 8px; padding: 10px 12px 8px; }
+.sign-box__search {
+  height: 36px; box-sizing: border-box; padding: 0 10px; border-radius: 8px; user-select: text;
+  font: inherit; font-size: 14px; color: #e8e8ec; background: #1b1b20; border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.sign-box__search:focus { outline: none; border-color: #5fd0a0; }
+.sign-box__repeat { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #c8c8d0; }
+.sign-box__repeat input { margin: 0; width: 16px; height: 16px; accent-color: #2f9e6e; cursor: pointer; }
+.sign-box__main { flex: 1; min-height: 0; display: flex; gap: 6px; padding: 0 8px 8px 12px; }
+.sign-box__footer { flex: none; padding: 0 12px 10px; color: #7a7a85; font-size: 12px; }
+.sign-box__list { flex: 1; min-width: 0; overflow-y: auto; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
+.sign-box__letter {
+  position: sticky; top: 0; z-index: 1; padding: 4px 10px; font-size: 12px; font-weight: 700; color: #5fd0a0; background: #1b1b20;
+}
+.sign-box__item {
+  display: flex; justify-content: space-between; gap: 8px; width: 100%; box-sizing: border-box; padding: 6px 10px; text-align: left;
+  font: inherit; font-size: 14px; color: #e8e8ec; background: none; border: 0; cursor: pointer;
+}
+.sign-box__item:hover { background: #2c2c33; }
+.sign-box__item.sign-box__item--active, .sign-box__item.sign-box__item--active:hover { background: #2f9e6e; color: #fff; }
+.sign-box__alias { color: #8a8a95; font-size: 12px; align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sign-box__item--active .sign-box__alias { color: #d8f5e8; }
+.sign-box__empty { padding: 12px 10px; color: #7a7a85; font-size: 12px; }
+.sign-box__abc { flex: none; width: 24px; display: flex; flex-direction: column; justify-content: space-between; }
+.sign-box__abc button {
+  flex: 1; min-height: 0; padding: 0; border-radius: 4px; cursor: pointer; font: inherit; font-size: 11px; font-weight: 600;
+  color: #c8c8d0; background: none; border: 0;
+}
+.sign-box__abc button:hover:not(:disabled) { color: #fff; background: #2f9e6e; }
+.sign-box__abc button:disabled { color: #4a4a54; cursor: default; }

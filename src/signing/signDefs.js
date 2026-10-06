@@ -1,6 +1,8 @@
 import fingerspelling from '../data/fingerspelling.json';
 import words from '../data/words.json';
 import { SIGNS, WORD_FORMS } from './hands.js';
+import { SIGN_FIELDS, SIGN_NAME } from './signFormat.js';
+import { canon, fingerprint } from '../util.js';
 
 // The definition of a sign (what the fine-tuning window changes) as opposed to its bone tweaks (tweaks.js):
 // curl, thumb, spread, knuckle, dir (a named orient), orient (changes to that orient, for this sign only), motion, and
@@ -8,25 +10,16 @@ import { SIGNS, WORD_FORMS } from './hands.js';
 //
 // What the data files hold is remembered as the baseline; a sign that differs from it is "changed". Changed signs are kept
 // in localStorage as a working copy (like the bone tweaks) until they are saved into the files (dev server).
-export const FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'];
 const STORAGE_KEY = 'viiper.signDefs';
 
 const clone = (v) => structuredClone(v);
-const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 const allZero = (a) => Array.isArray(a) && a.every((x) => x === 0);
-const fingerprint = (text) => {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return (h >>> 0).toString(36);
-};
 
-const pick = (sign) => Object.fromEntries(FIELDS.filter((f) => sign[f] !== undefined).map((f) => [f, clone(sign[f])]));
+const pick = (sign) => Object.fromEntries(SIGN_FIELDS.filter((f) => sign[f] !== undefined).map((f) => [f, clone(sign[f])]));
 // the signs as the files hold them (copied now: SIGNS shares its nested objects with the imported JSON, and the editor edits those)
 const baseline = new Map(Object.entries({ ...fingerspelling.signs, ...words.signs }).map(([k, s]) => [k, pick(s)]));
 
-// A new sign is a word sign (it goes into words.json). Its name is what is typed to get it: upper case, 2-40 characters.
-// (vite.config.js checks the same rule before it writes the file.)
-const SIGN_NAME = /^[\p{L}\p{N}][\p{L}\p{N} -]{1,39}$/u;
+// A new sign is a word sign (it goes into words.json). Its name is what is typed to get it: upper case (the rule is in signFormat.js).
 export const normalizeName = (text) => text.trim().replace(/\s+/g, ' ').toLocaleUpperCase('et');
 /** Why a name can't be used for a new sign, or null when it can. */
 export function checkName(name) {
@@ -65,7 +58,7 @@ export const changedKeys = () => signKeys().filter(isChanged);
 /** Replace a sign's definition (not its tweaks). */
 export function applyDef(key, def) {
   const sign = SIGNS[key];
-  for (const f of FIELDS) delete sign[f];
+  for (const f of SIGN_FIELDS) delete sign[f];
   Object.assign(sign, clone(def));
   sign.spread ??= [0, 0, 0, 0];
   sign.knuckle ??= [0, 0, 0, 0];

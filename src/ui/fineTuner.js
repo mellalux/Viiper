@@ -3,6 +3,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { askPin } from './pin.js';
+import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
@@ -20,14 +21,12 @@ import { mirrorRange, axisMax } from '../signing/limits.js';
 // and kept as a working copy the same way. The limits clamp the final pose of the bone, whatever poses it.
 const STORAGE_KEY = 'viiper.tweaks';
 const LIMITS_KEY = 'viiper.boneLimits';
-const LEGACY_KEYS = ['viiper.fingerTweaks', 'viiper.boneEditor', 'viiper.boneEditor.collapsed', 'viiper.signEditor', 'viiper.signEditor.collapsed']; // earlier versions' storage; no longer read, just removed
 const STANDBY_KEY = 'viiper.standby';
 const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed }
 const TWEAKS_URL = '/__save-sign-tweaks';
 const DEFS_URL = '/__save-sign-defs';
 const LIMITS_URL = '/__save-limits';
 
-const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
 // slider range of a bone's rotation, in degrees
 const ROT_RANGE = 120;
@@ -154,15 +153,7 @@ const el = (tag, className, text) => {
 };
 const input = (type, props = {}) => Object.assign(document.createElement('input'), { type }, props);
 const round = (v, step) => (step >= 1 ? Math.round(v) : Math.round(v * 100) / 100);
-const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-// compare without accents and case, one character for one: "aitah" finds AITÄH
-const fold = (t) => [...t].map((c) => c.normalize('NFD')[0].toUpperCase()).join('');
-// short fingerprint of the file's tweaks, to tell which file state a working copy was made against
-const fingerprint = (text) => {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return (h >>> 0).toString(36);
-};
+const { clamp } = THREE.MathUtils;
 // a point's trailing zeros are left out of the file ([0, 0] stays the shortest)
 const trim = (pt) => {
   while (pt.length > 2 && pt[pt.length - 1] === 0) pt.pop();
@@ -211,7 +202,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   }
   try {
     if (working?.base !== base) localStorage.removeItem(STORAGE_KEY);
-    for (const k of LEGACY_KEYS) localStorage.removeItem(k);
   } catch {}
 
   // The working copy only lives in localStorage while it differs from the files.
@@ -1795,11 +1785,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     /** True while the character must hold the sign still: the dock is open and the motion is not playing. */
     get holding() {
       return isOpen && !playing;
-    },
-    open,
-    close,
-    get isOpen() {
-      return isOpen;
     },
     setSign,
     /** Keep markers and lines on their bones (markers at a constant on-screen size); call once per frame after everything is posed. */

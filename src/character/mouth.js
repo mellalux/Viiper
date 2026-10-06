@@ -7,12 +7,12 @@ import { detectRig } from './rigs.js';
 // tuning doesn't depend on the bones' odd roll orientations. All values are relative to the
 // model's rest pose (a slight smile). Lengths are in model units, jaw in radians.
 // (GLTFLoader strips dots from node names: lipTL001, lipBR, jaw, teethB, ...)
-export const MOUTH_PARAMS = ['jaw', 'cornerIn', 'cornerUp', 'cornerForward', 'lowerDown', 'upperUp', 'lipForward'];
+const MOUTH_PARAMS = ['jaw', 'cornerIn', 'cornerUp', 'cornerForward', 'lowerDown', 'upperUp', 'lipForward'];
 
 // The mouth shapes and the letter -> shape table live in shared.json (data shared by the finger-spelling and the word signs):
 //   visemes  per shape, any of MOUTH_PARAMS (missing = 0); `note` is ignored. Offsets are model-space lengths, jaw in radians.
 //   letters  letter -> viseme. The order here is the order of the buttons in the letter panel.
-export const VISEMES = shared.visemes;
+const VISEMES = shared.visemes;
 export const LETTERS = shared.letters;
 
 // Rigs whose face is made of shape keys (Character Creator) have no lip bones: their mouth shapes are weights of shape

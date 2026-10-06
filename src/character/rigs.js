@@ -14,7 +14,7 @@ const ARM_PART = {
   cc: /^CC_Base_([LR])_(Upperarm|Forearm|Hand|Index\d|Mid\d|Ring\d|Pinky\d|Thumb\d)$/,
 };
 
-export const RIGS = {
+const RIGS = {
   rigify: {
     id: 'rigify',
     detect: (root) => !!root.getObjectByName('upper_armR'),
@@ -23,7 +23,8 @@ export const RIGS = {
     fingers: ['index', 'middle', 'ring', 'pinky'],
     finger: (s, f, n) => `f_${['index', 'middle', 'ring', 'pinky'][f]}0${n}${s}`,
     thumb: (s, n) => `thumb0${n}${s}`,
-    eyes: ['eyeL', 'eyeR'], // the signer's point of view sits between these
+    eyes: ['eyeL', 'eyeR'],
+    mouthBone: 'lipTL', // what ?face=mouth frames
     curlAxis: 0,
     spreadAxis: 2,
     spreadSign: 1,
@@ -50,6 +51,7 @@ export const RIGS = {
     finger: (s, f, n) => `CC_Base_${s}_${['Index', 'Mid', 'Ring', 'Pinky'][f]}${n}`,
     thumb: (s, n) => `CC_Base_${s}_Thumb${n}`,
     eyes: ['CC_Base_L_Eye', 'CC_Base_R_Eye'],
+    mouthBone: 'CC_Base_Teeth01',
     curlAxis: 2,
     spreadAxis: 0,
     spreadSign: -1,

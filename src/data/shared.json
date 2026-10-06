@@ -1,13 +1,8 @@
 {
   "orient": {
     "up": { "finger": [0, 1, 0], "thumb": [1, 0, 0], "reach": [-0.1, 0.22, 0.5] },
-    "down": { "finger": [0, -1, 0], "thumb": [-1, 0, 0], "reach": [-0.2, -0.05, 0.6] },
-    "hang": { "note": "Hand hangs down in front of the body, back of the hand to the viewer. The wrist bends a moderate amount (maxBend); the rest of the way down comes from the knuckles (signs.*.knuckle).", "finger": [0, -1, 0], "thumb": [1, 0, 0], "reach": [-0.26, 0, 0.5], "pole": [-0.3, -1, -0.2], "maxBend": 60 },
     "ready": { "note": "standby: the signing hand waits raised in front of the chest, palm to the viewer", "finger": [0.15, 1, 0], "thumb": [1, 0, 0], "reach": [-0.1, -0.2, 0.45] },
     "relaxed": { "note": "standby: the other hand hangs relaxed at the side, palm to the body", "finger": [0, -1, 0.15], "thumb": [0, 0, 1], "reach": [-0.12, -0.88, 0.2], "maxBend": 60 },
-    "left": { "note": "across the body to the signer's left, thumb down, palm away from the signer", "finger": [1, 0, 0], "thumb": [0, -1, 0], "reach": [-0.1, 0.2, 0.5] },
-    "diagL": { "note": "up and across the body to the signer's left", "finger": [1, 1, 0], "thumb": [1, -1, 0], "reach": [-0.1, 0.2, 0.5] },
-    "cross": { "note": "two-handed X: both hands near the midline, fingers up and inward so they cross", "finger": [0.6, 1, 0], "thumb": [1, -0.6, 0], "reach": [0.12, 0, 0.5] },
     "tere": { "note": "Tere: right hand in front of the upper chest, palm to the body, fingers pointing to the signer's left, thumb up, elbow out to the side", "finger": [1, 0.2, 0.1], "thumb": [0, 1, 0], "reach": [0.1, -0.2, 0.38], "pole": [-1, -0.2, 0] },
     "faceSide": { "note": "beside the face, palm to the viewer, fingers up (Head aega, Õnnitlema)", "finger": [0, 1, 0], "thumb": [1, 0, 0], "reach": [-0.15, 0.22, 0.3], "pole": [-1, -1, -0.3] },
     "pray": { "note": "palm towards the midline, fingers up, thumb to the body; the two hands touch in front of the chest (Palun)", "finger": [0, 1, 0], "thumb": [0, 0, -1], "reach": [0.3, -0.1, 0.43], "pole": [-0.6, -0.6, 0.2] },
@@ -16,7 +11,6 @@
     "fist": { "note": "fist raised in front of the shoulder, palm towards the midline, thumb side to the body (Jah)", "finger": [0.2, 1, 0.4], "thumb": [0, 0, -1], "reach": [0.05, 0.05, 0.4], "pole": [-1, -0.6, 0.2] },
     "thumbsUp": { "note": "fist with the thumb up in front of the upper chest, elbow out; the fist continues the forearm (Hea, Hästi)", "finger": [0.7, 0.55, 0.4], "thumb": [0, 1, 0], "reach": [0.15, -0.1, 0.4], "pole": [-1, -0.6, 0.2] },
     "no": { "note": "open hand, palm out, fingers up, a little left of the midline (Ei); the elbow stays out to the side so the forearm clears the body", "finger": [0, 1, 0], "thumb": [1, 0, 0], "reach": [0.35, -0.1, 0.5], "pole": [-1, 0, 0.4] },
-    "meet": { "note": "two-handed Q: both hands near the midline, fingers up and inward", "finger": [0.5, 1, 0], "thumb": [1, -0.5, 0], "reach": [0.1, -0.02, 0.5] },
     "pointSelf": { "note": "index finger to the signer's own chest, thumb up, elbow out (Mina)", "finger": [0.6, -0.1, -0.8], "thumb": [0, 1, 0], "reach": [0.12, -0.15, 0.45], "pole": [-1, -0.6, 0.2] },
     "pointFwd": { "note": "index finger forward, at the person facing the signer, thumb up (Sina, Nemad)", "finger": [0, 0.05, 1], "thumb": [0, 1, 0], "reach": [-0.1, 0.05, 0.8], "pole": [-0.4, -1, -0.1] },
     "cup": { "note": "four fingers together, bent at the knuckles (set per sign), palm up and a little towards the signer, between chest and shoulder height (Tema, Teie viisakusvorm)", "finger": [0.2, 0.4, 1], "thumb": [-1, 0, 0], "reach": [-0.05, 0, 0.5], "pole": [-0.5, -1, 0] },

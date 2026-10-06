@@ -19,44 +19,14 @@ const VIEWS = [
   { id: 'three-quarter', label: '3/4', title: 'Eest ja vasakult 45°', dir: [0.7071, 0.2, 0.7071] },
 ];
 
-const css = `
-.view-panel {
-  position: fixed; z-index: 10; width: 168px; border-radius: 12px; user-select: none; touch-action: none;
-  font: 13px system-ui, sans-serif; color: #e8e8ec;
-  background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
-}
-.view-panel__bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 12px; cursor: grab; border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.view-panel.is-dragging .view-panel__bar { cursor: grabbing; }
-.view-panel__title { font-weight: 600; letter-spacing: 0.02em; }
-.view-panel__grip { color: #888; letter-spacing: 2px; }
-.view-panel__body { display: grid; gap: 10px; padding: 10px 12px 12px; }
-.view-panel__zoom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.view-panel__views { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-.view-panel button {
-  height: 30px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
-  color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.view-panel__zoom button { font-size: 17px; }
-.view-panel button:hover { background: #38383f; }
-.view-panel button:active { background: #2f9e6e; }
-`;
-
 /** @param home () => { position: Vector3, target: Vector3 } the view that reset returns to */
 export function createViewControls({ camera, controls, home }) {
-  const style = document.createElement('style');
-  style.textContent = css;
-  document.head.appendChild(style);
-
   const box = document.createElement('div');
-  box.className = 'view-panel';
+  box.className = 'panel view-panel';
   box.innerHTML = `
-    <div class="view-panel__bar">
-      <span class="view-panel__title">Vaade</span>
-      <span class="view-panel__grip">⋮⋮</span>
+    <div class="panel__bar">
+      <span class="panel__title">Vaade</span>
+      <span class="panel__grip">⋮⋮</span>
     </div>
     <div class="view-panel__body">
       <div class="view-panel__zoom">
@@ -69,7 +39,7 @@ export function createViewControls({ camera, controls, home }) {
       </div>
     </div>`;
   document.body.appendChild(box);
-  makeDraggable(box, box.querySelector('.view-panel__bar'), POS_KEY, () => [16, 16]);
+  makeDraggable(box, box.querySelector('.panel__bar'), POS_KEY, () => [16, 16]);
 
   const zoom = (factor) => {
     const offset = camera.position.clone().sub(controls.target);

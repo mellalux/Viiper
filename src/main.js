@@ -1,14 +1,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { BLINK_CONFIG, createBlinker } from './character/blink.js';
 import { LETTERS, createMouth } from './character/mouth.js';
 import { createLetterPanel } from './ui/letterPanel.js';
 import { createTextPanel } from './ui/textPanel.js';
 import { createSignBrowser } from './ui/signBrowser.js';
-import { SIGNS, STANDBY, WORD_FORMS, MOTION_LEAD, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
+import { SIGNS, WORD_FORMS, MOTION_LEAD, ORIENT, THUMB_POSES, HAND_CONFIG, createHands } from './signing/hands.js';
 import { createMorphs } from './character/morphs.js';
 import { createGaze } from './character/gaze.js';
 import { createTweaks } from './signing/tweaks.js';
@@ -59,11 +58,8 @@ sun.position.set(5, 10, 7);
 scene.add(sun);
 scene.add(new THREE.GridHelper(20, 20, 0x444444, 0x222222));
 
-// GLB loader with Draco (mesh compression) and Meshopt support.
-// Draco decoder is fetched from a CDN; copy node_modules/three/examples/jsm/libs/draco/
-// to public/draco/ and change the path below to self-host it.
-const draco = new DRACOLoader().setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
-const loader = new GLTFLoader().setDRACOLoader(draco).setMeshoptDecoder(MeshoptDecoder);
+// GLB loader with Meshopt support (Kati.glb is meshopt-compressed). A Draco-compressed model needs a DRACOLoader too, see the README.
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
 let mixer = null;
 let blinker = null;
@@ -144,10 +140,11 @@ loader.load(
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
       gltf.scene.updateMatrixWorld(true);
-      const l = gltf.scene.getObjectByName('eyeL').getWorldPosition(new THREE.Vector3());
-      const r = gltf.scene.getObjectByName('eyeR').getWorldPosition(new THREE.Vector3());
-      const mid = l.add(r).multiplyScalar(0.5);
-      if (params.get('face') === 'mouth') mid.copy(gltf.scene.getObjectByName('lipTL').getWorldPosition(new THREE.Vector3()));
+      // the bone names differ per rig (rigs.js); a rig without them leaves the view where it is
+      const rig = detectRig(gltf.scene);
+      const at = (name) => gltf.scene.getObjectByName(name)?.getWorldPosition(new THREE.Vector3());
+      const eyes = (rig?.eyes ?? []).map(at).filter(Boolean);
+      const mid = (params.get('face') === 'mouth' ? at(rig?.mouthBone) : eyes.length && eyes.reduce((a, b) => a.add(b)).multiplyScalar(1 / eyes.length)) || controls.target.clone();
       controls.target.copy(mid);
       camera.position.copy(mid).add(new THREE.Vector3(0, 0, params.get('face') === 'mouth' ? 0.2 : 0.35));
       camera.near = 0.01;

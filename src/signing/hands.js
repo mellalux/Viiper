@@ -73,7 +73,7 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 // finger starts that fraction of the path after the one before (index first) and all end together, as fingers rippling.
 export const MOTION_LEAD = 0.3; // seconds the hand takes to get back to the start of the path
 // Two equal letters in a row: the hand makes a small push forward and back (BUMP_DEPTH in arm lengths, +z = the character's front).
-export const BUMP_SECONDS = 0.3;
+const BUMP_SECONDS = 0.3;
 const BUMP_DEPTH = 0.07;
 const CHANNELS = 8;
 // what a unit of each channel counts for when a segment's length sets its share of the time (angles in degrees, curl in 0..1)
@@ -175,8 +175,8 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   let standby = true;
 
   // --- animated state ---
-  const cur = { w: 0, tw: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: wq(hand) };
-  const tgt = { w: 0, tw: 0, follow: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: cur.qHand.clone() };
+  const cur = { w: 0, tw: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: wq(hand) };
+  const tgt = { w: 0, tw: 0, maxBend: HAND_CONFIG.maxWristBend, pole: new THREE.Vector3(...mx(HAND_CONFIG.pole)), knuckle: [0, 0, 0, 0], reach: new THREE.Vector3(...mx(ORIENT.up.reach)), curl: [0, 0, 0, 0], spread: [0, 0, 0, 0], thumb: new Array(9).fill(0), qHand: cur.qHand.clone() };
 
   const shoulderPos = new THREE.Vector3();
   const v = new THREE.Vector3();
@@ -184,7 +184,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   const m = new THREE.Matrix4();
   const eul = new THREE.Euler();
 
-  // --- motion along a sign's path (see MOTION_LEAD): `off` is the wrist offset in arm lengths (x, y) and the tilt in degrees (z), applied after the tweaks ---
+  // --- motion along a sign's path (see MOTION_LEAD): `off` holds the path's channels at this moment (see above), applied after the tweaks ---
   const motion = { def: null, t: 0, from: new Array(CHANNELS).fill(0), off: new Array(CHANNELS).fill(0), fingerCurl: [0, 0, 0, 0], paused: false };
   let bumpT = null; // seconds into the repeat bump, null when not bumping
   let frozenAt = null; // debug (?at=): hold the hand at this fraction (0..1) of its path
@@ -318,10 +318,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     }
     return depth;
   };
-  const guard = { pushed: 0, swing: 0 }; // what the last avoidBody did (metres the hand moved, radians the elbow turned), for debugging
   const avoidBody = () => {
-    guard.pushed = 0;
-    guard.swing = 0;
     if (!body || cur.tw < 0.05) return;
     const strength = Math.min(cur.tw, 1);
     // 1) the hand: move the wrist (and with it the palm and fingers, which keep their orientation) out of the body
@@ -336,7 +333,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       moved.add(push);
       reachWrist(wp(hand).add(push));
     }
-    guard.pushed = moved.length();
     // 2) the elbow, upper arm and forearm: turn the elbow about the shoulder-wrist line, as little as it takes to get clear
     upperArm.updateWorldMatrix(true, true);
     const shoulder = wp(upperArm);
@@ -351,7 +347,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       }
     }
     if (best.swing) reachWrist(wrist, { swing: best.swing * strength });
-    guard.swing = best.swing * strength;
   };
 
   const handQuat = (orient) => {
@@ -388,14 +383,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     // direction, rotate the whole hand back towards it.
     const handQ = cur.qHand.clone();
     const armDir = wrist.clone().sub(elbow).normalize();
-    if (cur.follow > 0.001) {
-      // straight wrist: fingers along the forearm, thumb towards the hint direction (palm down)
-      const y = armDir.clone();
-      const z = new THREE.Vector3(...mx(ORIENT.hang.thumb));
-      z.addScaledVector(y, -z.dot(y)).normalize();
-      const x = new THREE.Vector3().crossVectors(y, z);
-      handQ.slerp(new THREE.Quaternion().setFromRotationMatrix(m.makeBasis(x, y, z)), cur.follow);
-    }
     const fingerDir = new THREE.Vector3(0, 1, 0).applyQuaternion(handQ);
     const bend = fingerDir.angleTo(armDir);
     const maxBend = THREE.MathUtils.degToRad(cur.maxBend);
@@ -427,7 +414,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   };
 
   const api = {
-    side,
     boneList,
     /** The pose being shown (a letter or STANDBY), or null when the arm is lowered. */
     get key() {
@@ -466,9 +452,8 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       tgt.curl = [...sign.curl];
       tgt.spread = sign.spread.map((s) => s * axisSign[rig.spreadAxis] * rig.spreadSign);
       tgt.thumb = thumbPoses[sign.thumb].flat().map((v, i) => v * axisSign[i % 3]);
-      tgt.follow = o.follow ? 1 : 0;
       tgt.knuckle = [...sign.knuckle];
-      if (!tgt.follow) tgt.qHand = handQuat(o);
+      tgt.qHand = handQuat(o);
       tgt.reach.set(...o.reach);
       tgt.maxBend = o.maxBend ?? HAND_CONFIG.maxWristBend;
       tgt.pole.set(...(o.pole ?? mx(HAND_CONFIG.pole)));
@@ -487,7 +472,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       cur.w = tgt.w;
       cur.tw = tgt.tw;
       cur.curl = [...tgt.curl];
-      cur.follow = tgt.follow;
       cur.knuckle = [...tgt.knuckle];
       cur.spread = [...tgt.spread];
       cur.thumb = [...tgt.thumb];
@@ -501,7 +485,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       const k = 1 - Math.exp(-HAND_CONFIG.smoothing * dt);
       cur.w += (tgt.w - cur.w) * k;
       cur.tw += (tgt.tw - cur.tw) * k;
-      cur.follow += (tgt.follow - cur.follow) * k;
       for (let i = 0; i < 4; i++) cur.knuckle[i] += (tgt.knuckle[i] - cur.knuckle[i]) * k;
       for (let i = 0; i < 4; i++) {
         cur.curl[i] += (tgt.curl[i] - cur.curl[i]) * k;
@@ -519,7 +502,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     applyMotion,
     /** Keep the arm and hand out of the body (the `body` given to createHands); call last, after applyMotion. */
     avoidBody,
-    guard,
     /**
      * The pose the bones are in now, written as the data of a sign (the inverse of setSign + pose): the orient (wrist position,
      * elbow, which way the fingers and thumb point; in the stored right-hand coordinates), the wrist bend in degrees, and the
