@@ -516,9 +516,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   });
   // the collision guards keep the arms out of the body and out of each other; off, a bone can be posed freely (not remembered: they start on)
   const guardsBox = input('checkbox', { checked: true });
-  guardsBox.title = 'Välja lülitatuna ei hoia keha ja käte kaitse käsi kehast ega teineteisest eemal';
+  guardsBox.title = 'Välja lülitatuna ei hoia kaitse käsi kehast, käsi teineteisest ega sõrmi ja pöialt teineteisest eemal';
   const guardsRow = el('label', 'fd__row');
-  guardsRow.append(el('span', '', 'Kokkupõrke kaitse (keha, käed)'), guardsBox);
+  guardsRow.append(el('span', '', 'Kokkupõrke kaitse (keha, käed, sõrmed)'), guardsBox);
   guardsBox.addEventListener('change', () => onGuards(guardsBox.checked));
   const collidersBox = input('checkbox', { checked: collidersOn });
   collidersBox.title = 'Joonistab keha ja käte kolliderid; punane on teise sees (sama mis ?colliders=1)';

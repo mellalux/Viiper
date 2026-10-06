@@ -92,8 +92,9 @@ export function createHandHits(root) {
       bones.forEach((bone, n) => {
         if (!bone) return;
         const next = bones[n + 1];
-        if (next) add({ part, finger: f, seg: n + 1, a: bone, b: next });
-        else if (n > 0) add({ part, finger: f, seg: n + 1, a: bone, tipFrom: bones[n - 1] });
+        const joints = bones.slice(0, n + 1).filter(Boolean); // the joints that move this capsule: the finger's base joint .. its own
+        if (next) add({ part, finger: f, seg: n + 1, a: bone, b: next, joints });
+        else if (n > 0) add({ part, finger: f, seg: n + 1, a: bone, tipFrom: bones[n - 1], joints });
       });
     };
     rig.fingers.forEach((_, f) => chain(f, [1, 2, 3].map((n) => get(rig.finger(side, f, n))), 'finger'));
@@ -232,6 +233,34 @@ export function createHandHits(root) {
     return found;
   }
 
+  /**
+   * The overlaps inside one hand between a thumb or finger and another finger (the palm and the forearm are not counted: they
+   * can't give way), deeper than `minDepth` metres, for bending the joints apart:
+   * { x, y, depth, normal, pointX, pointY } with normal the unit vector from x to y and the points the closest ones (world space).
+   */
+  function inner(side, minDepth = 0.002) {
+    refresh();
+    const found = [];
+    const own = capsules.filter((c) => c.side === side && (c.part === 'finger' || c.part === 'thumb'));
+    for (let i = 0; i < own.length; i++) {
+      for (let j = i + 1; j < own.length; j++) {
+        const x = own[i];
+        const y = own[j];
+        if (skip(x, y) || apart(x, y)) continue;
+        const dist = segmentDistance(x.from, x.to, y.from, y.to);
+        const depth = (x.radius + y.radius) * SKIN - dist;
+        if (depth <= minDepth) continue;
+        const pointX = cA.clone();
+        const pointY = cB.clone();
+        const normal = pointY.clone().sub(pointX);
+        if (dist < 1e-5) normal.copy(y.from).add(y.to).sub(x.from).sub(x.to);
+        if (normal.lengthSq() < 1e-10) normal.set(1, 0, 0);
+        found.push({ x, y, depth, normal: normal.normalize(), pointX, pointY });
+      }
+    }
+    return found;
+  }
+
   /** Debug: wire capsules, red where one is in another (add to the scene; ?colliders=1); call update() every frame. */
   function outline() {
     const group = new THREE.Group();
@@ -261,5 +290,5 @@ export function createHandHits(root) {
     return group;
   }
 
-  return { capsules, measure, contacts, outline, refresh };
+  return { capsules, measure, contacts, inner, outline, refresh };
 }

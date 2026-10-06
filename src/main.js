@@ -15,6 +15,7 @@ import { createLimits, createBoneLimits } from './signing/limits.js';
 import { createBody } from './signing/body.js';
 import { createHandHits } from './signing/handHits.js';
 import { createHandGuard } from './signing/handGuard.js';
+import { createFingerGuard } from './signing/fingerGuard.js';
 import { auditSigns, summarize } from './signing/audit.js';
 import { createTwist } from './signing/twist.js';
 import { createFineTuner } from './ui/fineTuner.js';
@@ -76,6 +77,7 @@ let twist = null; // shares the hand's twist out over the forearm so the wrist s
 let body = null; // collision shape of the trunk and head, keeps the arms out of it
 let handHits = null; // capsules of the hands and forearms: measures fingers and hands going through each other (dev check)
 let handGuard = null; // keeps the two hands and forearms out of each other
+let fingerGuard = null; // keeps the fingers and the thumb of a hand out of each other
 let colliderDraw = []; // the collision shapes drawn (body, hand capsules): ?colliders=1 or the fine-tuning dock's tick
 let guardsOn = true; // body and hand-to-hand guards (?guard=0 or the dock's tick turn them off)
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
@@ -124,6 +126,7 @@ loader.load(
     hands = createHands(gltf.scene, 'R', { body });
     handsL = createHands(gltf.scene, 'L', { body });
     if (handHits && hands && handsL) handGuard = createHandGuard({ hits: handHits, hands: { R: hands, L: handsL }, body });
+    if (handHits && hands && handsL) fingerGuard = createFingerGuard({ hits: handHits, hands: { R: hands, L: handsL }, rig: detectRig(gltf.scene), clamps: [() => limits?.apply(), () => boneLimits?.apply()] });
     // the fine-tuning dock (and its save button) only exists on the dev server, not in the production build
     if (import.meta.env.DEV) {
       fineTuner = createFineTuner({
@@ -154,6 +157,8 @@ loader.load(
     window.__app.audit = audit;
     window.__app.show = showSign;
     window.__app.handGuard = handGuard;
+    window.__app.fingerGuard = fingerGuard;
+    window.__app.setGuards = (on) => (guardsOn = on);
     window.__modelReady = true;
     if (params.has('audit') && handHits) {
       const result = audit();
@@ -229,6 +234,7 @@ function poseArms(dt, { frozen = false, tweakDt = dt } = {}) {
   handsL?.update(frozen ? 0 : dt);
   tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
   limits?.apply(); // fingers can't bend the wrong way (after the tweaks, which may push them there)
+  if (guardsOn) for (const [side, h] of [['R', hands], ['L', handsL]]) fingerGuard?.apply(side, Math.min(h?.weight ?? 0, 1)); // the thumb and the fingers are kept out of each other
   for (const h of [hands, handsL]) {
     if (!h) continue;
     h.motionPaused = frozen || (fineTuner?.holding ?? false); // tuning a sign needs it to hold still
