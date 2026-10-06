@@ -710,7 +710,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       // Keep the pose: the sign's data are read from the bones as they are now (wrist, elbow, finger curls), and what those
       // can't say stays in the bone tweaks as the difference between the sign's own pose and the one shown now.
       const h = handOf(hand);
-      const target = new Map(h.boneList.map((b) => [b, b.quaternion.clone()]));
+      // In the standby sign the left hand without a pose of its own copies the right hand's finger data (relaxed at the side), so
+      // it changes with this button too: its bones are kept as they are as well.
+      const followers = key === STANDBY && hand === 'R' && !sign().left ? ['L'] : [];
+      const sides = [hand, ...followers];
+      const target = new Map(sides.flatMap((side) => handOf(side).boneList.map((b) => [b, b.quaternion.clone()])));
       const read = h.readPose();
       p.thumb ??= 'rest';
       p.dir ??= defaultDir();
@@ -725,7 +729,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       let moved = 0;
       for (const e of tweaks.bones) {
         const was = target.get(e.bone);
-        if (!was || e.group !== (hand === 'R' ? 'right' : 'left')) continue;
+        if (!was || !sides.some((side) => e.group === (side === 'R' ? 'right' : 'left'))) continue;
         const d = e.bone.quaternion.clone().invert().multiply(was);
         const eul = new THREE.Euler().setFromQuaternion(d, 'XYZ');
         const rot = [eul.x, eul.y, eul.z].map((r) => Math.round(THREE.MathUtils.radToDeg(r) * 10) / 10);
