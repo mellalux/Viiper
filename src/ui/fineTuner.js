@@ -169,12 +169,14 @@ const trim = (pt) => {
  * @param freeze       (fraction | null) => hold the motion at that fraction of its path, or let it play
  * @param select       (key) => show the sign everywhere (mouth, letter panel, text panel)
  * @param onStandby    (on) => whether the hands wait in the standby pose between signs
+ * @param onGuards     (on) => the body and hand-to-hand guards (kept out of the body and out of each other) switched on / off; they start on
+ * @param onColliders  (on) => the collision shapes (body, hand capsules) shown / hidden; `collidersOn` is how they start
  * @param handOf       (side 'R' | 'L') => that hand (hands.js): its bones and the pose they are in
  * @param currentSign  () => the key the character is signing now, if any
  * @param info         () => text with the arms' current state (the wrist twist)
  * @param onLayout     (px) => height of the dock when open, 0 when closed: the scene moves up to stay above it
  */
-export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimits, fingerLimits = null, letters, show, play, freeze, select, onStandby, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
+export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimits, fingerLimits = null, letters, show, play, freeze, select, onStandby, onGuards = () => {}, onColliders = () => {}, collidersOn = false, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
   letters = [...letters]; // signs added in the editor are appended
   const readLS = (k) => {
     try {
@@ -512,6 +514,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     writeLS(STANDBY_KEY, standbyBox.checked ? '1' : '0');
     onStandby(standbyBox.checked);
   });
+  // the collision guards keep the arms out of the body and out of each other; off, a bone can be posed freely (not remembered: they start on)
+  const guardsBox = input('checkbox', { checked: true });
+  guardsBox.title = 'Välja lülitatuna ei hoia keha ja käte kaitse käsi kehast ega teineteisest eemal';
+  const guardsRow = el('label', 'fd__row');
+  guardsRow.append(el('span', '', 'Kokkupõrke kaitse (keha, käed)'), guardsBox);
+  guardsBox.addEventListener('change', () => onGuards(guardsBox.checked));
+  const collidersBox = input('checkbox', { checked: collidersOn });
+  collidersBox.title = 'Joonistab keha ja käte kolliderid; punane on teise sees (sama mis ?colliders=1)';
+  const collidersRow = el('label', 'fd__row');
+  collidersRow.append(el('span', '', 'Näita kolliderid'), collidersBox);
+  collidersBox.addEventListener('change', () => onColliders(collidersBox.checked));
   // a new word sign: its name is what gets typed to show it; it starts as a flat hand, or as a copy of the sign being edited
   const newName = input('text', { placeholder: 'Uue märgi nimi (nt KASS)…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
   const newCopy = input('checkbox', { checked: false });
@@ -522,7 +535,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const newNote = el('div', 'fd__note');
   const newCopyRow = el('label', 'fd__row');
   newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
-  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, handTabs, standbyRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
+  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, handTabs, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
 
   function createSign() {
     const name = defs.normalizeName(newName.value);

@@ -73,7 +73,6 @@ export function createHandHits(root) {
 
   /** capsules: { side, part: 'finger' | 'thumb' | 'palm' | 'forearm', finger (0..3 / 4 = thumb), seg (1..3), from, to (world points, refreshed), radius } */
   const capsules = [];
-  const tipOf = (prev, last, out) => out.copy(wp(last, new THREE.Vector3())).addScaledVector(wp(last, new THREE.Vector3()).sub(wp(prev, new THREE.Vector3())), 0.9);
 
   for (const side of ['R', 'L']) {
     const names = rig.arm(side);
@@ -108,7 +107,7 @@ export function createHandHits(root) {
     for (const c of capsules) {
       wp(c.a, c.from);
       if (c.b) wp(c.b, c.to);
-      else tipOf(c.tipFrom, c.a, c.to);
+      else c.a.localToWorld(c.to.copy(c.tipLocal)); // the tip moves with its own bone, however the last joint is bent
       c.mid.copy(c.from).add(c.to).multiplyScalar(0.5);
       c.reach = c.from.distanceTo(c.to) / 2 + c.radius * SKIN; // a sphere round the whole capsule, for skipping far-apart pairs early
     }
@@ -121,6 +120,13 @@ export function createHandHits(root) {
   for (const c of capsules) {
     if (c.part === 'palm') (palmOf.get(c.a) ?? palmOf.set(c.a, []).get(c.a)).push(c);
     if (c.part === 'forearm' || c.part === 'finger' || c.part === 'thumb') (owners.get(c.a) ?? owners.set(c.a, []).get(c.a)).push(c);
+  }
+  // where a last phalanx ends, in its own bone's frame: as far past the joint as the phalanx before it is long (x 0.9), measured once
+  for (const c of capsules) {
+    if (!c.tipFrom) continue;
+    const last = wp(c.a, new THREE.Vector3());
+    const tip = last.clone().addScaledVector(last.clone().sub(wp(c.tipFrom, new THREE.Vector3())), 0.9);
+    c.tipLocal = c.a.worldToLocal(tip);
   }
   refresh();
   const v = new THREE.Vector3();

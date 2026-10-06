@@ -76,7 +76,8 @@ let twist = null; // shares the hand's twist out over the forearm so the wrist s
 let body = null; // collision shape of the trunk and head, keeps the arms out of it
 let handHits = null; // capsules of the hands and forearms: measures fingers and hands going through each other (dev check)
 let handGuard = null; // keeps the two hands and forearms out of each other
-let hitOutline = null; // ?colliders=1: those capsules drawn
+let colliderDraw = []; // the collision shapes drawn (body, hand capsules): ?colliders=1 or the fine-tuning dock's tick
+let guardsOn = true; // body and hand-to-hand guards (?guard=0 or the dock's tick turn them off)
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
 let fineTuner = null; // the fine-tuning dock: sign definitions, bones, motion timeline (dev server only)
 let gaze = null; // turns the eyes towards the mouse cursor
@@ -116,9 +117,9 @@ loader.load(
     limits = createLimits(gltf.scene);
     body = createBody(gltf.scene);
     twist = createTwist(gltf.scene);
-    if (body && params.has('colliders')) body.outline();
     handHits = createHandHits(gltf.scene);
-    if (handHits && params.has('colliders')) hitOutline = handHits.outline();
+    guardsOn = params.get('guard') !== '0';
+    if (params.has('colliders')) setColliders(true);
     if (import.meta.env.DEV) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
     hands = createHands(gltf.scene, 'R', { body });
     handsL = createHands(gltf.scene, 'L', { body });
@@ -132,6 +133,9 @@ loader.load(
         freeze: (r) => [hands, handsL].forEach((h) => h?.freezeMotion(r)),
         select: press,
         onStandby: (on) => [hands, handsL].forEach((h) => h?.setStandby(on)),
+        onGuards: (on) => (guardsOn = on),
+        onColliders: setColliders,
+        collidersOn: params.has('colliders'),
         currentSign: () => hands?.key,
         handOf: (side) => (side === 'L' ? handsL : hands),
         info: () => {
@@ -210,6 +214,12 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+/** Show or hide the collision shapes (the body's, the hands' capsules); built the first time they are wanted. */
+function setColliders(on) {
+  if (on && !colliderDraw.length) colliderDraw = [body?.outline(), handHits?.outline()].filter(Boolean);
+  for (const shape of colliderDraw) shape.visible = on;
+}
+
 /** The arms' and hands' pose for this frame, everything in order (`frozen` holds the hands still; `tweakDt` lets the audit snap the tweaks). */
 function poseArms(dt, { frozen = false, tweakDt = dt } = {}) {
   tweaks?.setKey(hands?.key ?? null);
@@ -224,7 +234,7 @@ function poseArms(dt, { frozen = false, tweakDt = dt } = {}) {
     h.motionPaused = frozen || (fineTuner?.holding ?? false); // tuning a sign needs it to hold still
     h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
   }
-  if (params.get('guard') !== '0') {
+  if (guardsOn) {
     // the hands are kept out of each other and out of the body; each pushes the other back a little, so several rounds
     for (let i = 0; i < 7; i++) {
       const separated = handGuard?.apply(Math.min(hands?.weight ?? 0, handsL?.weight ?? 0, 1));
@@ -270,7 +280,7 @@ renderer.setAnimationLoop((time) => {
   boneLimits?.apply(); // last of all: nothing may turn a bone past the limits set in limits.json
   morphs?.flush();
   fineTuner?.update();
-  hitOutline?.userData.update();
+  for (const shape of colliderDraw) if (shape.visible) shape.userData.update?.();
   controls.update();
   renderer.render(scene, camera);
 });
