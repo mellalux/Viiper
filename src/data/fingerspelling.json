@@ -661,26 +661,24 @@
       }
     },
     "Ü": {
-      "motion": { "note": "a small wrist dip marks the umlaut: the hand drops a little and comes back (wrist offsets in arm lengths, +y = up)", "path": [[0, 0], [0, -0.07], [0, 0]], "duration": 0.5 },
       "tweaks": {
-        "CC_Base_R_Forearm": { "rot": [120.5, 5, -3] },
-        "CC_Base_R_Hand": { "rot": [21.2, -11.1, -24.3] },
-        "CC_Base_R_Index1": { "rot": [0, 0, 30] },
-        "CC_Base_R_Index2": { "rot": [0, 0, 65] },
-        "CC_Base_R_Index3": { "rot": [0, 0, 28] },
-        "CC_Base_R_Mid1": { "rot": [5, 0, 85] },
-        "CC_Base_R_Mid2": { "rot": [0, 0, 88] },
-        "CC_Base_R_Mid3": { "rot": [0, 0, 80] },
-        "CC_Base_R_Pinky1": { "rot": [-5, 0, 2] },
-        "CC_Base_R_Pinky2": { "rot": [0, 0, 5] },
-        "CC_Base_R_Pinky3": { "rot": [0, 0, 10] },
-        "CC_Base_R_Ring1": { "rot": [-3, -3, 80] },
-        "CC_Base_R_Ring2": { "rot": [0, 0, 75] },
-        "CC_Base_R_Ring3": { "rot": [0, 0, 80] },
-        "CC_Base_R_Thumb1": { "rot": [8.1, -64.5, 60] },
-        "CC_Base_R_Thumb2": { "rot": [16.6, 20.7, 4.2] },
-        "CC_Base_R_Thumb3": { "rot": [-35, 0, 0] },
-        "CC_Base_R_Upperarm": { "rot": [29.2, -2.9, 40.8] }
+        "CC_Base_R_Forearm": { "rot": [117.9, 0, 0] },
+        "CC_Base_R_Hand": { "rot": [37.7, -27.5, -8.4] },
+        "CC_Base_R_Index1": { "rot": [0, 0, 61] },
+        "CC_Base_R_Index2": { "rot": [0, 0, 35] },
+        "CC_Base_R_Index3": { "rot": [2, 0, 4] },
+        "CC_Base_R_Mid1": { "rot": [0, 0, 62] },
+        "CC_Base_R_Mid2": { "rot": [0, 0, 30] },
+        "CC_Base_R_Pinky1": { "rot": [0, 0, 5] },
+        "CC_Base_R_Pinky2": { "rot": [0, 0, 2] },
+        "CC_Base_R_Pinky3": { "rot": [0, 0, 2] },
+        "CC_Base_R_Ring1": { "rot": [0, 0, 64] },
+        "CC_Base_R_Ring2": { "rot": [0, 0, 28] },
+        "CC_Base_R_Thumb1": { "rot": [14, -62, 62] },
+        "CC_Base_R_Thumb2": { "rot": [35, -8, 27] },
+        "CC_Base_R_Thumb3": { "rot": [0, 0, -1] },
+        "CC_Base_R_Upperarm": { "rot": [31.5, 0, 45.8] },
+        "CC_Base_R_Mid3": { "rot": [0, 0, 16] }
       }
     },
     "X": {

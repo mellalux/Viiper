@@ -149,7 +149,7 @@ In `shared.json`:
 
 In `fingerspelling.json`:
 
-- `signs`: per letter (and `ootel`, the standby pose), mostly just the `tweaks` made in the fine-tuning window: the rotation of arm and finger bones, which is what poses the hand. `left` (an empty `{}` is enough) lets the other hand take part in a letter. A letter can carry the same finger data as a word sign (`curl`, `spread`, `knuckle`, `thumb`, `dir`, `orient`), as U does; *Määra sõrmeandmed* in the editor adds it from the current pose. `motion` moves the hand (Z, Ž, Ä, Ü).
+- `signs`: per letter (and `ootel`, the standby pose), mostly just the `tweaks` made in the fine-tuning window: the rotation of arm and finger bones, which is what poses the hand. `left` (an empty `{}` is enough) lets the other hand take part in a letter. A letter can carry the same finger data as a word sign (`curl`, `spread`, `knuckle`, `thumb`, `dir`, `orient`), as U does; *Määra sõrmeandmed* in the editor adds it from the current pose. `motion` moves the hand (Z, Ž, Ä).
 - `global`: tweaks that always apply (body).
 
 `words.json` has the word signs, which are described by finger data (`curl` 0 straight to 1 fully curled, optional `spread` and `knuckle`, a thumb pose, an `orient` named in `dir`) and a `motion`, plus optional `tweaks`.
