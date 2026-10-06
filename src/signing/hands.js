@@ -502,6 +502,10 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     applyMotion,
     /** Keep the arm and hand out of the body (the `body` given to createHands); call last, after applyMotion. */
     avoidBody,
+    /** Move the wrist (and the hand with it, keeping its orientation) by `delta` (world space), the elbow following; for handGuard.js. */
+    shiftWrist(delta) {
+      reachWrist(wp(hand).add(delta));
+    },
     /**
      * The pose the bones are in now, written as the data of a sign (the inverse of setSign + pose): the orient (wrist position,
      * elbow, which way the fingers and thumb point; in the stored right-hand coordinates), the wrist bend in degrees, and the

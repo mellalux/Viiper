@@ -45,8 +45,9 @@ If the model fails to load, a placeholder cube is shown.
 | `?sign=B` | Freeze the hand in that letter's (or word's) sign; `&at=0..1` also holds its motion at that fraction |
 | `?viseme=O` | Freeze the mouth in that viseme |
 | `?face=1` / `?face=mouth` | Frame the face / the mouth |
-| `?guard=0` | Turn the body collision off (arms may go into the trunk again) |
-| `?colliders=1` | Draw the body's collision shape |
+| `?guard=0` | Turn the body collision and the hand-to-hand guard off (arms may go into the trunk and each other again) |
+| `?colliders=1` | Draw the body's collision shape and the capsules of the hands and forearms (red where two are inside each other) |
+| `?audit=1` | Show every sign and write how deep the hands' capsules go into each other into `#audit-result` (also `window.__app.audit()`; `window.__app.show('PALUN', 0)` shows one sign) |
 | `?gaze=0` | Keep the eyes from following the mouse cursor |
 | `?blink=0..1` | Freeze the eyelids at that closure |
 | `?openAngle=`, `?closedAngle=`, `?scale=` | Override the eyelid dome (Rigify) |

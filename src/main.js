@@ -13,6 +13,9 @@ import { createGaze } from './character/gaze.js';
 import { createTweaks } from './signing/tweaks.js';
 import { createLimits, createBoneLimits } from './signing/limits.js';
 import { createBody } from './signing/body.js';
+import { createHandHits } from './signing/handHits.js';
+import { createHandGuard } from './signing/handGuard.js';
+import { auditSigns, summarize } from './signing/audit.js';
 import { createTwist } from './signing/twist.js';
 import { createFineTuner } from './ui/fineTuner.js';
 import * as signDefs from './signing/signDefs.js';
@@ -71,6 +74,9 @@ let limits = null; // joint limits of the fingers
 let boneLimits = null; // hand-set rotation limits of any single bone (limits.json)
 let twist = null; // shares the hand's twist out over the forearm so the wrist skin isn't wrung
 let body = null; // collision shape of the trunk and head, keeps the arms out of it
+let handHits = null; // capsules of the hands and forearms: measures fingers and hands going through each other (dev check)
+let handGuard = null; // keeps the two hands and forearms out of each other
+let hitOutline = null; // ?colliders=1: those capsules drawn
 let tweaks = null; // hand-tuned bone offsets (rotation + position) from fingerspelling.json
 let fineTuner = null; // the fine-tuning dock: sign definitions, bones, motion timeline (dev server only)
 let gaze = null; // turns the eyes towards the mouse cursor
@@ -78,7 +84,8 @@ let gaze = null; // turns the eyes towards the mouse cursor
 // Debug helpers: ?blink=0..1 freezes the lids at that closure, ?face=1 frames the face (?face=mouth the mouth),
 // ?openAngle=, ?closedAngle=, ?scale= override the eyelid dome. ?viseme=O freezes the mouth in that shape,
 // ?sign=B freezes the hand in that letter's finger-spelling sign (?at=0..1 also holds its motion at that fraction), ?gaze=0 keeps the eyes from following the cursor,
-// ?guard=0 turns the body collision off, ?colliders=1 draws its shape.
+// ?guard=0 turns the body collision off, ?colliders=1 draws its shape and the hand capsules (red where they are inside each other),
+// ?audit=1 shows every sign and writes the contacts between the hands' capsules into #audit-result (see signing/audit.js).
 const params = new URLSearchParams(location.search);
 
 // Default view: straight on, head to waist, the character centred (her centre line is the middle of the model's bounding
@@ -110,9 +117,12 @@ loader.load(
     body = createBody(gltf.scene);
     twist = createTwist(gltf.scene);
     if (body && params.has('colliders')) body.outline();
+    handHits = createHandHits(gltf.scene);
+    if (handHits && params.has('colliders')) hitOutline = handHits.outline();
     if (import.meta.env.DEV) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
     hands = createHands(gltf.scene, 'R', { body });
     handsL = createHands(gltf.scene, 'L', { body });
+    if (handHits && hands && handsL) handGuard = createHandGuard({ hits: handHits, hands: { R: hands, L: handsL }, body });
     // the fine-tuning dock (and its save button) only exists on the dev server, not in the production build
     if (import.meta.env.DEV) {
       fineTuner = createFineTuner({
@@ -136,7 +146,19 @@ loader.load(
     handsL?.snapSign(params.get('sign'));
     if (params.has('at')) [hands, handsL].forEach((h) => h?.freezeMotion(+params.get('at'))); // ?sign=TERE&at=0.5: hold the motion half way
     window.__app = { THREE, root: gltf.scene, camera, controls, mouth, blinker, hands, handsL, tweaks, limits, boneLimits, body, twist, fineTuner, signDefs, morphs, gaze, rig: detectRig(gltf.scene), LETTERS, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG }; // debugging hook
+    window.__app.handHits = handHits;
+    window.__app.audit = audit;
+    window.__app.show = showSign;
+    window.__app.handGuard = handGuard;
     window.__modelReady = true;
+    if (params.has('audit') && handHits) {
+      const result = audit();
+      window.__audit = result;
+      const out = document.createElement('pre');
+      out.id = 'audit-result';
+      out.textContent = JSON.stringify(result);
+      document.body.appendChild(out);
+    }
     if (params.has('blink')) blinker?.apply(+params.get('blink'));
     if (params.has('face')) {
       gltf.scene.updateMatrixWorld(true);
@@ -188,6 +210,52 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+/** The arms' and hands' pose for this frame, everything in order (`frozen` holds the hands still; `tweakDt` lets the audit snap the tweaks). */
+function poseArms(dt, { frozen = false, tweakDt = dt } = {}) {
+  tweaks?.setKey(hands?.key ?? null);
+  tweaks?.step(tweakDt);
+  tweaks?.applyPre(); // body offsets first: the arms' IK reads the shoulders
+  hands?.update(frozen ? 0 : dt);
+  handsL?.update(frozen ? 0 : dt);
+  tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
+  limits?.apply(); // fingers can't bend the wrong way (after the tweaks, which may push them there)
+  for (const h of [hands, handsL]) {
+    if (!h) continue;
+    h.motionPaused = frozen || (fineTuner?.holding ?? false); // tuning a sign needs it to hold still
+    h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
+  }
+  if (params.get('guard') !== '0') {
+    // the hands are kept out of each other and out of the body; each pushes the other back a little, so several rounds
+    for (let i = 0; i < 7; i++) {
+      const separated = handGuard?.apply(Math.min(hands?.weight ?? 0, handsL?.weight ?? 0, 1));
+      for (const h of [hands, handsL]) h?.avoidBody();
+      if (!separated && !handGuard?.touching()) break; // clear of each other, also after the body guard has had its say
+    }
+  }
+  twist?.apply(); // the arms have their final pose: the forearm's twist bones follow the hand
+}
+
+/** Both hands in `sign` with its motion held at fraction r (null: none), everything posed at once (debug: window.__app.show). */
+function showSign(sign, r = null) {
+  for (const h of [hands, handsL]) {
+    h?.snapSign(sign);
+    h?.freezeMotion(r);
+  }
+  // twice: the fingers' curl along the motion path is read one pose late, so one pass would show the sign before it
+  for (let i = 0; i < 2; i++) {
+    poseArms(0, { frozen: true, tweakDt: 10 });
+    boneLimits?.apply();
+  }
+  scene.updateMatrixWorld(true);
+}
+
+/** Show every sign through the real pose pipeline and measure the hands' capsules going into each other (signing/audit.js). */
+function audit() {
+  const rows = auditSigns({ signs: SIGNS, show: showSign, hits: handHits });
+  [hands, handsL].forEach((h) => h?.freezeMotion(null));
+  return { rows, summary: summarize(rows) };
+}
+
 const timer = new THREE.Timer();
 timer.connect(document); // ignores the time spent in a hidden tab, so dt doesn't spike on return
 renderer.setAnimationLoop((time) => {
@@ -195,27 +263,14 @@ renderer.setAnimationLoop((time) => {
   const dt = timer.getDelta();
   mixer?.update(dt);
   if (!params.has('blink')) blinker?.update(dt);
-  // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
-  const frozenSign = params.has('sign');
-  tweaks?.setKey(hands?.key ?? null);
-  tweaks?.step(dt);
-  tweaks?.applyPre(); // body offsets first: the arms' IK reads the shoulders
-  hands?.update(frozenSign ? 0 : dt);
-  handsL?.update(frozenSign ? 0 : dt);
   mouth?.update(params.has('viseme') ? 0 : dt);
-  tweaks?.applyPost(); // face, arms and fingers after hands.js / mouth.js have posed them
-  limits?.apply(); // fingers can't bend the wrong way (after the tweaks, which may push them there)
-  for (const h of [hands, handsL]) {
-    if (!h) continue;
-    h.motionPaused = frozenSign || (fineTuner?.holding ?? false); // tuning a sign needs it to hold still
-    h.applyMotion(); // signs that move (Z) trace their path on top of the tuned pose
-    if (params.get('guard') !== '0') h.avoidBody(); // and last, arms and hands are kept out of the body
-  }
-  twist?.apply(); // the arms have their final pose: the forearm's twist bones follow the hand
+  // Frozen debug poses (?sign=, ?viseme=) still re-pose every frame with dt = 0, so the tweaks on top don't pile up.
+  poseArms(dt, { frozen: params.has('sign') });
   gaze?.update(dt);
   boneLimits?.apply(); // last of all: nothing may turn a bone past the limits set in limits.json
   morphs?.flush();
   fineTuner?.update();
+  hitOutline?.userData.update();
   controls.update();
   renderer.render(scene, camera);
 });
