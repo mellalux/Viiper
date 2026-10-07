@@ -904,9 +904,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const gizmoPanel = el('div', 'panel fd-gizmo');
   gizmoPanel.hidden = true;
   const gizmoBone = el('div', 'fd__note');
+  const gizmoHint = el('div', 'fd__note');
   gizmoPanel.innerHTML = '<div class="panel__bar"><span class="panel__title">Luu gizmo</span><span class="panel__grip">⋮⋮</span></div>';
   const gizmoBody = el('div', 'fd-gizmo__body');
-  gizmoBody.append(gizmoBone, gizmoRow, axisHead, rotRow.row, posRow.row, weightRow);
+  gizmoBody.append(gizmoBone, gizmoRow, gizmoHint, axisHead, rotRow.row, posRow.row, weightRow);
   gizmoPanel.appendChild(gizmoBody);
   document.body.appendChild(gizmoPanel);
   makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 58]); // below the account button
@@ -1095,7 +1096,19 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   gizmo.addEventListener('objectChange', () => {
     const e = sel();
     if (!e?.bone || !key) return;
-    const t = tweaks.tweakFor(e.name, proxy.getWorldQuaternion(gizmoQ), proxy.getWorldPosition(gizmoP));
+    proxy.getWorldQuaternion(gizmoQ);
+    proxy.getWorldPosition(gizmoP);
+    // An arm or finger bone is not moved off its joint: moving it turns the bone it hangs on (the forearm for the wrist) about that
+    // bone's own joint, so the arm stays in one piece. Other bones (face, body, the upper arm) are offset.
+    const aim = gizmo.mode === 'translate' ? tweaks.aimParent(e.name, gizmoP) : null;
+    if (aim) {
+      const turned = bones.find((b) => b.name === aim.name);
+      Object.assign(adjust, { bone: turned, until: Infinity });
+      writeBone(turned, { rot: aim.rot, pos: tweaks.get(tweaks.keyOf(turned.name, key), turned.name).pos }, editId(e));
+      refreshBone();
+      return;
+    }
+    const t = tweaks.tweakFor(e.name, gizmoQ, gizmoP);
     const now = tweaks.get(editKey(), e.name);
     Object.assign(adjust, { bone: e, until: Infinity });
     writeBone(e, gizmo.mode === 'rotate' ? { rot: t.rot, pos: now.pos } : { rot: now.rot, pos: t.pos }, editId(e)); // (only what the gizmo is turning changes)
@@ -1150,6 +1163,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const k = editKey();
       note = k === key ? '' : e.group === 'body' ? ' (kehtib alati)' : ' (ooteasend)';
     }
+    const aimName = e?.bone && gizmo.mode === 'translate' ? tweaks.aimParentOf(e.name) : null;
+    gizmoHint.textContent = aimName ? `Liigutamine pöörab luud ${aimName}, et valitud luu jääks külge. Nihke lahtrid nihutavad luud ennast.` : '';
     gizmoBone.innerHTML = e ? `<b>${e.name}</b>` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
@@ -1191,7 +1206,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // (a shape key's weight is the same on both sides)
   const mirrored = (v) => v && ('w' in v ? { w: v.w } : { rot: [v.rot[0], -v.rot[1], -v.rot[2]], pos: [-v.pos[0], v.pos[1], v.pos[2]] });
   const writeBone = (e, value, id) => {
-    tweaks.set(editKey(), e.name, value);
+    tweaks.set(tweaks.keyOf(e.name, key), e.name, value); // (e is not always the selected bone: the gizmo may turn its parent)
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
     bonesChanged(id);
   };
@@ -2051,14 +2066,15 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const e = sel();
 
       // the bone being turned goes back where the limits hold it (see overflow)
-      if (adjust.bone && adjust.bone === e && !e.shape && key) {
+      const turned = adjust.bone; // (the selected bone, or the one the gizmo turns for it)
+      if (turned && !turned.shape && key) {
         if (performance.now() > adjust.until) adjust.bone = null;
         else {
-          const ex = overflow(e);
+          const ex = overflow(turned);
           if (ex.some((x) => Math.abs(x) >= 0.5)) {
-            const now = tweaks.get(editKey(), e.name);
+            const now = tweaks.get(tweaks.keyOf(turned.name, key), turned.name);
             const rot = now.rot.map((r, i) => (Math.abs(ex[i]) >= 0.5 ? Math.round((r - ex[i]) * 10) / 10 : r));
-            writeBone(e, { rot, pos: now.pos }, editId(e));
+            writeBone(turned, { rot, pos: now.pos }, e ? editId(e) : `bone:${turned.name}:${key}`);
             refreshBone();
           }
         }

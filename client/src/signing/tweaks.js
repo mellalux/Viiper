@@ -206,6 +206,34 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       };
     },
     /**
+     * The bone that turns when an arm or finger bone is moved: its nearest ancestor of the same arm (the forearm for the hand, the
+     * hand for a finger's first joint ...), so the bone stays joined to it. Null for the bones that are only offset (face, body,
+     * and the upper arm, whose parent belongs to the body).
+     */
+    aimParentOf(name) {
+      const e = byName.get(name);
+      if (!e?.bone || (e.group !== 'right' && e.group !== 'left')) return null;
+      for (let p = e.bone.parent; p?.isBone; p = p.parent) if (byName.get(p.name)?.group === e.group) return byName.get(p.name).name;
+      return null;
+    },
+    /**
+     * Moving bone `name` to `worldTarget`: the tweak rotation (degrees) of its aim parent (see aimParentOf) that turns the parent about
+     * its own joint until the bone points at the target; the parent's own position stays.
+     * @returns { name, rot } or null where the bone has no aim parent
+     */
+    aimParent(name, worldTarget) {
+      const parentName = api.aimParentOf(name);
+      if (!parentName) return null;
+      const parent = byName.get(parentName).bone;
+      const pivot = parent.getWorldPosition(new THREE.Vector3());
+      const from = byName.get(name).bone.getWorldPosition(new THREE.Vector3()).sub(pivot);
+      const to = worldTarget.clone().sub(pivot);
+      if (from.lengthSq() < 1e-12 || to.lengthSq() < 1e-12) return null;
+      const turn = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize());
+      const wanted = parent.getWorldQuaternion(new THREE.Quaternion()).premultiply(turn);
+      return { name: parentName, rot: api.tweakFor(parentName, wanted, pivot).rot };
+    },
+    /**
      * Copy the tweaks of `names` from sign `from` to sign `to`, replacing what `to` had for them. Only entries that are
      * kept per sign are copied (not the body's, which always applies, nor the waiting arm's).
      * @returns { copied, cleared } how many entries were written / removed
