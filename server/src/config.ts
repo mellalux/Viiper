@@ -15,6 +15,8 @@ const int = (name: string, fallback: number): number => {
 export interface Config {
   production: boolean;
   port: number;
+  /** Address to listen on (the host may hand out one, e.g. ELKDATA_APP_IP); all interfaces when unset. */
+  host: string | null;
   /** SQLite file; ":memory:" for tests. */
   dbPath: string;
   /** The built frontend that is served in production (none in dev: Vite serves it and proxies /api here). */
@@ -35,6 +37,7 @@ export interface Config {
 export const loadConfig = (overrides: Partial<Config> = {}): Config => ({
   production,
   port: int('PORT', 3001),
+  host: env.HOST || env.ELKDATA_APP_IP || null,
   dbPath: env.DB_PATH ?? path.join(serverRoot, 'data', 'viiper.db'),
   clientDist: env.CLIENT_DIST ?? (production ? path.join(repoRoot, 'client', 'dist') : null),
   dataDir: env.DATA_DIR ?? path.join(repoRoot, 'client', 'src', 'data'),

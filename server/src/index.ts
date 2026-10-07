@@ -26,8 +26,13 @@ if (!accounts.list().length) {
 }
 
 const app = createApp(config, db);
-const server = app.listen(config.port, () => {
-  console.log(`[server] http://localhost:${config.port} (${config.production ? 'production' : 'development'}, db ${config.dbPath})`);
+const onListening = () => {
+  console.log(`[server] http://${config.host ?? 'localhost'}:${config.port} (${config.production ? 'production' : 'development'}, db ${config.dbPath})`);
+};
+const server = config.host ? app.listen(config.port, config.host, onListening) : app.listen(config.port, onListening);
+server.on('error', (err) => {
+  console.error(`[server] cannot listen on ${config.host ?? '*'}:${config.port}: ${err.message}`);
+  process.exit(1);
 });
 
 const stop = () => {
