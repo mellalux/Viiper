@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 import helmet from 'helmet';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { audit as makeAudit } from './audit.js';
 import { sessions as makeSessions } from './auth/sessions.js';
 import { errorHandler, guardChanges, loadSession, notFound } from './middleware.js';
 import { authRoutes } from './routes/auth.js';
@@ -36,15 +37,16 @@ export function createApp(config: Config, db: Db): Express {
   );
 
   const sessions = makeSessions(db, config.sessionDays);
+  const audit = makeAudit(db);
   // who is asking and where from is settled before any body is read; the data save is the only big request
   app.use('/api', cookieParser(), loadSession(sessions, config), guardChanges(config));
   app.use('/api/data', express.json({ limit: '2mb' }));
   app.use('/api', express.json({ limit: '16kb' }));
 
   app.get('/api/health', (_req, res) => void res.json({ ok: true }));
-  app.use('/api/auth', authRoutes(db, config, sessions));
-  app.use('/api/users', userRoutes(db, sessions));
-  app.use('/api', dataRoutes(db));
+  app.use('/api/auth', authRoutes(db, config, sessions, audit));
+  app.use('/api/users', userRoutes(db, sessions, audit));
+  app.use('/api', dataRoutes(db, audit));
   app.use('/api', notFound);
 
   if (config.clientDist) {

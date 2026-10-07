@@ -241,3 +241,28 @@ describe('saving signs', () => {
     assert.equal((await editor.put('/api/data', { limits: { base: v['*limits'], bones: {} } })).status, 409); // stale
   });
 });
+
+describe('audit log', () => {
+  it('is for admins only', async () => {
+    const editor = await login('editor', 'another long password');
+    assert.equal((await editor.get('/api/audit')).status, 403);
+    assert.equal((await client().get('/api/audit')).status, 401);
+  });
+
+  it('records sign-ins (also failed ones), account changes and saves, newest first, and never a password', async () => {
+    const admin = await login('admin', 'correct horse battery');
+    await client().post('/api/auth/login', { username: 'admin', password: 'definitely wrong pw' });
+    await admin.post('/api/users', { username: 'audited', password: 'secret audit password', role: 'editor' });
+    const entries = (await admin.get('/api/audit')).json.entries as { username: string | null; action: string; target: string | null; detail: string | null; ip: string | null }[];
+    const actions = entries.map((e) => e.action);
+    assert.ok(actions.includes('login') && actions.includes('login_failed') && actions.includes('user_create') && actions.includes('sign_save'), actions.join());
+    assert.equal(entries[0]!.action, 'user_create');
+    assert.equal(entries[0]!.username, 'admin');
+    assert.equal(entries[0]!.target, 'audited');
+    assert.ok(entries.find((e) => e.action === 'sign_save')!.username === 'editor');
+    assert.ok(entries.find((e) => e.action === 'login_failed')!.ip);
+    assert.ok(!JSON.stringify(entries).includes('secret audit password'));
+    const page = (await admin.get(`/api/audit?limit=1`)).json.entries;
+    assert.equal(page.length, 1);
+  });
+});

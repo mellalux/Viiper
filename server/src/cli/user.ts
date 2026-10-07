@@ -9,6 +9,7 @@ import { Writable } from 'node:stream';
 import { loadConfig } from '../config.js';
 import { openDb } from '../db.js';
 import { HttpError, ROLES, users, type Role } from '../auth/users.js';
+import { audit, type AuditAction } from '../audit.js';
 
 const [command, ...rest] = process.argv.slice(2);
 const flags = new Map<string, string>();
@@ -45,6 +46,7 @@ const password = async () => flags.get('password') ?? process.env.VIIPER_PASSWOR
 async function main() {
   const db = openDb(loadConfig().dbPath);
   const accounts = users(db);
+  const note = (action: AuditAction, target: string, detail?: unknown) => audit(db).log(null, action, target, detail, { name: 'CLI' });
   const need = (name: string | undefined) => {
     const user = name ? accounts.byName(name) : undefined;
     if (!user) throw new HttpError(404, `Sellist kasutajat pole: ${name ?? '(nimi puudub)'}`);
@@ -64,6 +66,7 @@ async function main() {
       const role = (flags.get('role') ?? 'editor') as Role;
       if (!ROLES.includes(role)) throw new HttpError(400, 'Roll peab olema admin või editor.');
       const user = await accounts.create(args[0], await password(), role);
+      note('user_create', user.username, { role: user.role });
       console.log(`Lisatud: ${user.username} (${user.role})`);
       break;
     }
@@ -71,6 +74,7 @@ async function main() {
       const user = need(args[0]);
       await accounts.setPassword(user.id, await password());
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      note('user_update', user.username, { password: 'uus parool' });
       console.log(`Parool vahetatud: ${user.username} (kõik tema sessioonid lõpetati)`);
       break;
     }
@@ -78,6 +82,7 @@ async function main() {
       const user = args[1] === 'admin' ? need(args[0]) : leavesNoAdmin(args[0]!);
       if (!ROLES.includes(args[1] as Role)) throw new HttpError(400, 'Roll peab olema admin või editor.');
       db.prepare('UPDATE users SET role = ? WHERE id = ?').run(args[1], user.id);
+      note('user_update', user.username, { role: args[1] });
       console.log(`${user.username}: ${args[1]}`);
       break;
     }
@@ -85,17 +90,20 @@ async function main() {
       const user = leavesNoAdmin(args[0]!);
       db.prepare('UPDATE users SET disabled = 1 WHERE id = ?').run(user.id);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
+      note('user_update', user.username, { disabled: true });
       console.log(`Keelatud: ${user.username}`);
       break;
     }
     case 'enable': {
       const user = need(args[0]);
       db.prepare('UPDATE users SET disabled = 0 WHERE id = ?').run(user.id);
+      note('user_update', user.username, { disabled: false });
       console.log(`Lubatud: ${user.username}`);
       break;
     }
     case 'delete': {
       const user = leavesNoAdmin(args[0]!);
+      note('user_delete', user.username);
       db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
       console.log(`Kustutatud: ${user.username}`);
       break;

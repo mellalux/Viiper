@@ -59,6 +59,20 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX history_target ON history(target, id);
   `,
+  `
+  -- who did what (sign-ins, account changes, saves); the user name is copied in so a row survives its account
+  CREATE TABLE audit (
+    id       INTEGER PRIMARY KEY,
+    at       TEXT NOT NULL,
+    user_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    username TEXT,
+    action   TEXT NOT NULL,
+    target   TEXT,
+    detail   TEXT,
+    ip       TEXT
+  );
+  CREATE INDEX audit_at ON audit(at);
+  `,
 ];
 
 export function openDb(file: string): Db {

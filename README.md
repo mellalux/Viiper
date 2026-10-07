@@ -129,6 +129,7 @@ Anyone can open the page and watch the signs; **an account is needed to change t
 - Roles: **editor** (*toimetaja*) edits signs; **admin** also manages accounts.
 - The account button (top right) signs in and out, changes one's own password and, for admins, opens *Kasutajad*: add an account, change a role, set a new password, disable or delete. The last active admin cannot be removed. A disabled account, a changed password and a deleted account end that account's sessions.
 - The same from the command line: `npm run user -- list | add | passwd | role | disable | enable | delete` (see [server/src/cli/user.ts](server/src/cli/user.ts)).
+- **Activity log:** admins see it under *Tegevuslogi* in the account menu (`GET /api/audit`): sign-ins and failed or blocked attempts (with the IP), sign-outs, password changes, account changes (also those made with `npm run user`, shown as *CLI*) and every save of signs (which signs, their new versions). Kept for a year in the `audit` table. What exactly changed in a sign is in its history (`GET /api/history/<SIGN>`).
 - Passwords: at least 10 characters, stored as salted scrypt hashes. A sign-in sets an `HttpOnly`, `SameSite=Lax` (and, in production, `Secure`, `__Host-`) cookie holding a random token; the database keeps only the token's SHA-256, so a leaked database cannot be used to sign in. Sessions last 14 days of use.
 - Wrong passwords are limited per IP and per IP + account (429 for 15 minutes). Every change request must be JSON and, when the browser says where from, come from the page's own origin (cross-site request forgery).
 
@@ -153,6 +154,7 @@ The JSON files in [client/src/data/](client/src/data/) are still there, in three
 | `GET /api/history/:target` | signed in | the saves of a sign, `*global` or `*limits` |
 | `POST /api/auth/login`, `/logout`, `/password`; `GET /api/auth/me` | | sessions |
 | `GET/POST /api/users`, `PATCH/DELETE /api/users/:id` | admin | accounts |
+| `GET /api/audit` | admin | the activity log, newest first (`limit`, `before`) |
 
 ## Project layout
 

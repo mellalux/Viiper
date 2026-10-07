@@ -46,6 +46,9 @@ const css = `
 .acc-users td { padding: 4px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .acc-users tr.is-disabled td:first-child { text-decoration: line-through; color: #9a9aa5; }
 .acc-users button { padding: 3px 8px; font-size: 12px; }
+.acc-log td { vertical-align: top; white-space: nowrap; }
+.acc-log td:nth-child(5) { white-space: normal; word-break: break-word; color: #9a9aa5; }
+.acc-log .is-bad td:nth-child(3) { color: #ff8a8a; }
 .acc-new { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 6px; align-items: end; }
 @media (max-width: 560px) { .acc-new { grid-template-columns: 1fr; } .acc-users { font-size: 12px; } }
 `;
@@ -154,6 +157,54 @@ function changePassword() {
   });
 }
 
+const ACTIONS = {
+  login: 'sisselogimine', login_failed: 'vale parool', login_blocked: 'sisselogimine blokeeritud', logout: 'väljalogimine', password_change: 'parooli vahetus',
+  user_create: 'konto lisatud', user_update: 'konto muudetud', user_delete: 'konto kustutatud', sign_save: 'viipeid salvestatud',
+};
+const BAD = new Set(['login_failed', 'login_blocked']);
+
+/** The audit log: who signed in, changed accounts or saved signs, newest first. Admins only. */
+function showLog() {
+  return modal(
+    'Tegevuslogi',
+    (close) => {
+      const body = h('tbody', {});
+      const error = h('div', { class: 'acc-dialog__error', role: 'alert' });
+      const more = h('button', { type: 'button', hidden: true }, 'Vanemad');
+      let last = null;
+      async function load() {
+        try {
+          const { entries } = await api('GET', `/api/audit?limit=100${last ? `&before=${last}` : ''}`);
+          for (const e of entries) {
+            body.append(
+              h('tr', { class: BAD.has(e.action) ? 'is-bad' : '' },
+                h('td', {}, new Date(e.at).toLocaleString('et')),
+                h('td', {}, e.username ?? '–'),
+                h('td', {}, ACTIONS[e.action] ?? e.action),
+                h('td', {}, e.target ?? ''),
+                h('td', {}, [e.detail, e.ip].filter(Boolean).join(' · ')),
+              ),
+            );
+            last = e.id;
+          }
+          more.hidden = entries.length < 100;
+          if (!last) body.append(h('tr', {}, h('td', { colspan: 5 }, 'Logi on tühi.')));
+        } catch (err) {
+          error.textContent = err.message;
+        }
+      }
+      more.addEventListener('click', load);
+      load();
+      return h('div', { class: 'acc', style: 'display: grid; gap: 10px' },
+        h('div', { style: 'max-height: 60vh; overflow: auto' },
+          h('table', { class: 'acc-users acc-log' }, h('thead', {}, h('tr', {}, h('th', {}, 'Aeg'), h('th', {}, 'Kasutaja'), h('th', {}, 'Tegevus'), h('th', {}, 'Mille kohta'), h('th', {}, 'Lisa (IP)'))), body)),
+        error,
+        h('div', { class: 'acc-dialog__buttons' }, more, h('button', { type: 'button', onclick: () => close(null) }, 'Sulge')));
+    },
+    { wide: true },
+  );
+}
+
 function manageUsers() {
   return modal(
     'Kasutajad',
@@ -231,6 +282,7 @@ export function createAccountMenu() {
     h('small', {}, user.role === 'admin' ? 'Administraator' : 'Toimetaja'),
     h('button', { type: 'button', onclick: () => ((menu.hidden = true), changePassword().then((ok) => ok && alert('Parool vahetatud.'))) }, 'Muuda parooli'),
     user.role === 'admin' ? h('button', { type: 'button', onclick: () => ((menu.hidden = true), manageUsers()) }, 'Kasutajad') : null,
+    user.role === 'admin' ? h('button', { type: 'button', onclick: () => ((menu.hidden = true), showLog()) }, 'Tegevuslogi') : null,
     h('button', { type: 'button', onclick: async () => (await logout(), location.reload()) }, 'Logi välja'),
   );
   const btn = h('button', { class: 'account__btn', type: 'button', 'aria-haspopup': 'menu', onclick: () => (menu.hidden = !menu.hidden) }, `${user.username} ▾`);

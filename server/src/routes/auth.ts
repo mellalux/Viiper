@@ -1,13 +1,14 @@
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import type { Db } from '../db.js';
 import type { Config } from '../config.js';
 import type { Sessions } from '../auth/sessions.js';
 import { dummyHash, verifyPassword } from '../auth/password.js';
 import { HttpError, toPublic, users } from '../auth/users.js';
+import type { Audit } from '../audit.js';
 import { cookieName, requireUser } from '../middleware.js';
 
-export function authRoutes(db: Db, config: Config, sessions: Sessions): Router {
+export function authRoutes(db: Db, config: Config, sessions: Sessions, audit: Audit): Router {
   const router = Router();
   const accounts = users(db);
 
@@ -15,7 +16,10 @@ export function authRoutes(db: Db, config: Config, sessions: Sessions): Router {
     res.cookie(cookieName(config), token, { httpOnly: true, sameSite: 'lax', secure: config.secureCookies, path: '/', expires });
 
   // wrong guesses are counted per IP and per IP + account; a correct login does not count
-  const tooMany = (_req: unknown, res: Response) => void res.status(429).json({ error: 'Liiga palju sisselogimiskatseid, proovi hiljem uuesti.' });
+  const tooMany = (req: Request, res: Response) => {
+    audit.log(req, 'login_blocked', String(req.body?.username ?? '').slice(0, 64));
+    res.status(429).json({ error: 'Liiga palju sisselogimiskatseid, proovi hiljem uuesti.' });
+  };
   const limits = [
     rateLimit({ windowMs: 15 * 60_000, limit: config.loginMaxPerIp, skipSuccessfulRequests: true, standardHeaders: 'draft-7', legacyHeaders: false, handler: tooMany }),
     rateLimit({
@@ -34,16 +38,24 @@ export function authRoutes(db: Db, config: Config, sessions: Sessions): Router {
     if (typeof username !== 'string' || typeof password !== 'string') throw new HttpError(400, 'Sisesta kasutajanimi ja parool.');
     const user = accounts.byName(username);
     const ok = await verifyPassword(password, user && !user.disabled ? user.password_hash : await dummyHash());
-    if (!user || user.disabled || !ok) throw new HttpError(401, 'Vale kasutajanimi või parool.');
+    if (!user || user.disabled || !ok) {
+      audit.log(req, 'login_failed', username, user?.disabled ? 'konto on keelatud' : undefined);
+      throw new HttpError(401, 'Vale kasutajanimi või parool.');
+    }
+    audit.log(req, 'login', user.username, undefined, { id: user.id, name: user.username });
     const { token, expires } = sessions.create(user.id);
     db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(new Date().toISOString(), user.id);
     sessions.purgeExpired();
+    audit.prune();
     setCookie(res, token, expires);
     res.json({ user: toPublic(user) });
   });
 
   router.post('/logout', (req, res) => {
-    if (req.sessionToken) sessions.destroy(req.sessionToken);
+    if (req.sessionToken) {
+      audit.log(req, 'logout');
+      sessions.destroy(req.sessionToken);
+    }
     res.clearCookie(cookieName(config), { httpOnly: true, sameSite: 'lax', secure: config.secureCookies, path: '/' });
     res.json({ ok: true });
   });
@@ -60,6 +72,7 @@ export function authRoutes(db: Db, config: Config, sessions: Sessions): Router {
     if (typeof current !== 'string' || !(await verifyPassword(current, user.password_hash))) throw new HttpError(403, 'Praegune parool on vale.');
     await accounts.setPassword(user.id, next);
     sessions.destroyAllOf(user.id, req.sessionToken);
+    audit.log(req, 'password_change');
     res.json({ ok: true });
   });
 
