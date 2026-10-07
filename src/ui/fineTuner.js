@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { askPin } from './pin.js';
 import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
@@ -19,18 +20,17 @@ import { mirrorRange, axisMax } from '../signing/limits.js';
 // src/data/fingerspelling.json / words.json (dev server only, behind the save PIN).
 // A bone can also get rotation limits (limits.js): min / max per axis, the same for every sign, saved in src/data/limits.json
 // and kept as a working copy the same way. The limits clamp the final pose of the bone, whatever poses it.
+// A selected bone is turned and moved in the scene with a TransformControls gizmo (on a proxy object that follows the bone; what it
+// is dragged to is turned back into the bone's tweak, see tweaks.tweakFor); everything else is edited in number fields.
 const STORAGE_KEY = 'viiper.tweaks';
 const LIMITS_KEY = 'viiper.boneLimits';
 const STANDBY_KEY = 'viiper.standby';
-const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed }
+const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed, gizmoMode, gizmoSpace }
 const TWEAKS_URL = '/__save-sign-tweaks';
 const DEFS_URL = '/__save-sign-defs';
 const LIMITS_URL = '/__save-limits';
 
 
-// slider range of a bone's rotation, in degrees
-const ROT_RANGE = 120;
-const SLIDERS = ['Pööre X', 'Pööre Y', 'Pööre Z'];
 const FINGERS = ['Nimetissõrm', 'Keskmine sõrm', 'Sõrmusesõrm', 'Väike sõrm'];
 const AXES = ['x', 'y', 'z'];
 
@@ -64,7 +64,7 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
   background: rgba(22, 22, 26, 0.96); border-top: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
 }
-.fd[hidden] { display: none; }
+.fd[hidden], .fd [hidden] { display: none !important; }
 .fd button, .fd select, .fd input[type=number], .fd input[type=search], .fd input[type=text] {
   font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px;
 }
@@ -96,10 +96,13 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__row > select { flex: 1; max-width: 190px; }
 .fd__buttons { display: flex; gap: 6px; }
 .fd__buttons > button { flex: 1; padding: 5px 4px; }
-.fd__slider { display: grid; grid-template-columns: 62px 1fr 46px; align-items: center; gap: 6px; }
-.fd__slider--axis { grid-template-columns: 14px 1fr 38px; }
-.fd__slider input { width: 100%; margin: 0; }
-.fd__slider output { text-align: right; font-variant-numeric: tabular-nums; color: #9a9aa5; font-size: 12px; }
+.fd__num { display: grid; grid-template-columns: 1fr 74px 16px; align-items: center; gap: 6px; }
+.fd__num--axis { grid-template-columns: 14px 74px 16px; }
+.fd__num input { width: 100%; }
+.fd__num span:last-child { color: #9a9aa5; font-size: 12px; }
+.fd__xyz { display: grid; grid-template-columns: 52px repeat(3, minmax(0, 1fr)); align-items: center; gap: 4px; }
+.fd__xyz input { width: 100%; }
+.fd__xyzhead { display: grid; grid-template-columns: 52px repeat(3, minmax(0, 1fr)); gap: 4px; color: #9a9aa5; font-size: 11px; text-align: center; }
 .fd__lim { display: grid; grid-template-columns: 14px 52px 52px 24px 24px minmax(0, 1fr); align-items: center; gap: 4px; }
 .fd__lim input { width: 100%; }
 .fd__lim button { padding: 3px 0; }
@@ -110,9 +113,7 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__col { display: grid; gap: 3px; align-content: start; }
 .fd__fingers { display: grid; grid-template-columns: 92px repeat(3, minmax(0, 1fr)); gap: 3px 10px; align-items: center; }
 .fd__fingers > .fd__sub { margin: 0; }
-.fd__cell { display: grid; grid-template-columns: 1fr 34px; align-items: center; gap: 4px; }
-.fd__cell input { width: 100%; margin: 0; }
-.fd__cell output { text-align: right; font-variant-numeric: tabular-nums; color: #9a9aa5; font-size: 11px; }
+.fd__cell input { width: 100%; }
 .fd__search { width: 100%; }
 .fd__chips { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 4px; flex: 1; min-height: 40px; overflow-y: auto; padding: 5px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
 .fd__chip {
@@ -153,6 +154,7 @@ const el = (tag, className, text) => {
 };
 const input = (type, props = {}) => Object.assign(document.createElement('input'), { type }, props);
 const round = (v, step) => (step >= 1 ? Math.round(v) : Math.round(v * 100) / 100);
+const round3 = (v) => Math.round(v * 1000) / 1000;
 const { clamp } = THREE.MathUtils;
 // a point's trailing zeros are left out of the file ([0, 0] stays the shortest)
 const trim = (pt) => {
@@ -589,22 +591,31 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     renderHand();
   }
 
-  // ---------------------------------------------------------------- building blocks for the sliders
-  let sliderSeq = 0; // each slider's own undo gesture id
-  function slider(parent, label, min, max, step, get, set, unit = '', axis = false) {
-    const row = el('label', `fd__slider${axis ? ' fd__slider--axis' : ''}`);
-    const range = input('range', { min, max, step });
-    const out = el('output');
-    const fmt = (v) => `${round(+v, step)}${unit}`;
-    range.value = get();
-    out.textContent = fmt(range.value);
-    const id = `slider${++sliderSeq}`;
-    range.addEventListener('input', () => {
-      set(+range.value);
-      out.textContent = fmt(range.value);
+  // ---------------------------------------------------------------- building blocks for the number fields
+  /**
+   * A number field for `get()`; typing (or the arrows) calls `set` with the value kept within min..max and rounded to 3 decimals.
+   * The field's text is left alone while it is being typed in and tidied up when it loses focus.
+   */
+  const numberField = ({ min, max, step, value }) => {
+    const field = input('number', { min, max, step, value: round3(value) });
+    const clamped = () => clamp(Math.round(+field.value * 1000) / 1000, min ?? -Infinity, max ?? Infinity);
+    field.addEventListener('change', () => {
+      if (field.value !== '' && Number.isFinite(+field.value)) field.value = clamped();
+    });
+    return { field, read: () => (field.value === '' || !Number.isFinite(+field.value) ? null : clamped()) };
+  };
+  let fieldSeq = 0; // each field's own undo gesture id
+  function numRow(parent, label, min, max, step, get, set, unit = '', axis = false) {
+    const row = el('label', `fd__num${axis ? ' fd__num--axis' : ''}`);
+    const { field, read } = numberField({ min, max, step, value: get() });
+    const id = `field${++fieldSeq}`;
+    field.addEventListener('input', () => {
+      const v = read();
+      if (v === null) return;
+      set(v);
       changed(id);
     });
-    row.append(el('span', '', label), range, out);
+    row.append(el('span', '', label), field, el('span', '', unit));
     parent.appendChild(row);
   }
 
@@ -619,7 +630,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   function vector(parent, label, field, min, max, step) {
     parent.appendChild(el('div', 'fd__sub', label));
     AXES.forEach((axis, i) =>
-      slider(parent, axis.toUpperCase(), min, max, step, () => effective(field)[i], (v) => {
+      numRow(parent, axis.toUpperCase(), min, max, step, () => effective(field)[i], (v) => {
         const next = [...effective(field)];
         next[i] = v;
         setOrient(field, next);
@@ -659,7 +670,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const colArm = el('div', 'fd__col');
     const colHand = el('div', 'fd__col');
     colPose.append(dirRow, note);
-    slider(colPose, 'Randme painutus', 20, 120, 1, () => p.orient?.maxBend ?? ORIENT[p.dir ?? defaultDir()]?.maxBend ?? HAND_CONFIG.maxWristBend, (v) => setOrient('maxBend', v), '°');
+    numRow(colPose, 'Randme painutus', 20, 120, 1, () => p.orient?.maxBend ?? ORIENT[p.dir ?? defaultDir()]?.maxBend ?? HAND_CONFIG.maxWristBend, (v) => setOrient('maxBend', v), '°');
     const own = el('div', 'fd__note', p.orient ? 'Selle viipe oma muudatused põhiasendis: ' + Object.keys(p.orient).join(', ') : 'Põhiasendit pole selle viipe jaoks muudetud.');
     const undo = el('button', '', 'Lähtesta põhiasendile');
     undo.disabled = !p.orient;
@@ -779,15 +790,15 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       for (const [field, label, min, max, step] of arrays) {
         const cell = el('label', 'fd__cell');
         cell.title = `${name}: ${label}`;
-        const range = input('range', { min, max, step, value: p[field]?.[i] ?? 0 });
-        const out = el('output', '', String(round(+range.value, step)));
-        range.addEventListener('input', () => {
+        const { field: box, read } = numberField({ min, max, step, value: p[field]?.[i] ?? 0 });
+        box.addEventListener('input', () => {
+          const v = read();
+          if (v === null) return;
           p[field] ??= [0, 0, 0, 0];
-          p[field][i] = +range.value;
-          out.textContent = String(round(+range.value, step));
+          p[field][i] = v;
           changed(`${field}${i}:${key}:${hand}`);
         });
-        cell.append(range, out);
+        cell.appendChild(box);
         grid.appendChild(cell);
       }
     });
@@ -827,14 +838,32 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const linesBox = input('checkbox', { checked: true });
   const boneLabel = el('div', 'fd__note');
   const boneTitle = el('span', '', 'Luu');
-  const boneSliders = SLIDERS.map((label, i) => {
-    const row = el('label', 'fd__slider');
-    const text = el('span', '', label);
-    const range = input('range', { value: 0 });
-    const out = el('output', '', '0');
-    row.append(text, range, out);
-    return { row, text, range, out, i };
-  });
+  // the gizmo's mode and space, and the tweak's numbers: rotation (degrees) and position offset (millimetres) per axis, or a shape key's weight
+  const modeRotBtn = el('button', '', 'Pööra');
+  const modeMoveBtn = el('button', '', 'Liiguta');
+  const spaceBtn = el('button', '');
+  modeRotBtn.title = 'Gizmo pöörab luud (hiirega rõnga otsast)';
+  modeMoveBtn.title = 'Gizmo liigutab luud (hiirega noole otsast); nihe salvestatakse millimeetrites';
+  const gizmoRow = el('div', 'fd__buttons');
+  gizmoRow.append(modeRotBtn, modeMoveBtn, spaceBtn);
+  const xyzRow = (label, step, title) => {
+    const row = el('label', 'fd__xyz');
+    row.title = title;
+    const fields = AXES.map((axis) => {
+      const f = numberField({ step, value: 0 });
+      f.field.title = `${label} ${axis.toUpperCase()}`;
+      return f;
+    });
+    row.append(el('span', '', label), ...fields.map((f) => f.field));
+    return { row, fields };
+  };
+  const rotRow = xyzRow('Pööre °', 0.1, 'Luu pööre puhkeasendi peal, kraadides (Euler XYZ, luu enda telgedes)');
+  const posRow = xyzRow('Nihe mm', 0.1,'Luu nihe millimeetrites mudeli teljestikus (+X = tegelase vasak, +Y üles, +Z ette)');
+  const weightRow = el('label', 'fd__num');
+  const weight = numberField({ min: -1, max: 1, step: 0.01, value: 0 });
+  weightRow.append(el('span', '', 'Kaal'), weight.field, el('span'));
+  const axisHead = el('div', 'fd__xyzhead');
+  axisHead.append(el('span'), ...AXES.map((a) => el('span', '', a.toUpperCase())));
   // rotation limits of the selected bone: per axis a min and a max (blank = free), buttons that take the bone's current angle
   const limitsOnBox = input('checkbox', { checked: true });
   limitsOnBox.title = 'Välja lülitatuna saab luu vabalt poosida (piirid jäävad alles)';
@@ -886,7 +915,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       row(el('span', '', 'Peegelda vastasküljele'), mirrorBox),
       row(el('span', '', 'Näita luujooni'), linesBox),
       boneLabel,
-      ...boneSliders.map((s) => s.row),
+      gizmoRow,
+      axisHead,
+      rotRow.row,
+      posRow.row,
+      weightRow,
       buttons,
       el('div', 'fd__sub', 'Pöörde piirid – kõigile märkidele (° puhkeasendist)'),
       row(el('span', '', 'Piirid kehtivad'), limitsOnBox),
@@ -986,16 +1019,44 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     }
   }
 
-  // A rotation slider that is being moved stops where the limits hold the bone: the limits clamp the final pose, so when they had to
-  // turn the bone back the slider's value goes back by that much and the slider's end is set there until it is let go.
-  // (A bone that nothing else poses needs none of this: its slider simply ends at its limit, see refreshBone.)
-  const adjust = { bone: null, i: -1, until: 0 }; // the slider being moved: its bone, axis, and until when
-  const caps = [{}, {}, {}]; // per axis, { min } or { max }: where the slider was held
-  const endAdjust = () => {
+  // A bone that is being turned (with the gizmo or in the fields) stops where the limits hold it: the limits clamp the final pose, so
+  // when they had to turn the bone back, the tweak's rotation goes back by that much (see update).
+  const adjust = { bone: null, until: 0 }; // the bone being edited, and until when (Infinity while the gizmo is held)
+  const editId = (e) => `bone:${e.name}:${key}`; // one undo gesture for the gizmo, the fields and the limit correction alike
+
+  // The gizmo (TransformControls) sits on a proxy object that follows the selected bone; what it is dragged to is turned back into
+  // the bone's tweak (tweaks.tweakFor). Only while it is held does the gizmo move the proxy, the rest of the time the proxy follows the bone.
+  const proxy = new THREE.Object3D();
+  scene.add(proxy);
+  const gizmo = new TransformControls(camera, dom);
+  gizmo.setSize(0.9);
+  gizmo.setMode(readLS(UI_KEY)?.gizmoMode === 'translate' ? 'translate' : 'rotate');
+  gizmo.setSpace(readLS(UI_KEY)?.gizmoSpace === 'world' ? 'world' : 'local');
+  gizmo.detach();
+  scene.add(gizmo.getHelper());
+  gizmo.addEventListener('dragging-changed', (ev) => {
+    controls.enabled = !ev.value; // the orbit must not turn the view with it
+    if (ev.value) return;
+    endGesture();
     if (adjust.until === Infinity) adjust.until = performance.now() + 300;
+  });
+  const gizmoQ = new THREE.Quaternion();
+  const gizmoP = new THREE.Vector3();
+  gizmo.addEventListener('objectChange', () => {
+    const e = sel();
+    if (!e?.bone || !key) return;
+    const t = tweaks.tweakFor(e.name, proxy.getWorldQuaternion(gizmoQ), proxy.getWorldPosition(gizmoP));
+    const now = tweaks.get(editKey(), e.name);
+    Object.assign(adjust, { bone: e, until: Infinity });
+    writeBone(e, gizmo.mode === 'rotate' ? { rot: t.rot, pos: now.pos } : { rot: now.rot, pos: t.pos }, editId(e)); // (only what the gizmo is turning changes)
+    refreshBone();
+  });
+  /** The gizmo is shown on the selected bone while the dock is open (a shape key has nothing to turn). */
+  const attachGizmo = () => {
+    const e = sel();
+    if (isOpen && key && e?.bone) gizmo.attach(proxy);
+    else if (gizmo.object) gizmo.detach();
   };
-  window.addEventListener('pointerup', endAdjust);
-  window.addEventListener('pointercancel', endAdjust);
   /** How far the limits turned the selected bone back at the last frame, degrees per Euler axis (x, y, z). */
   function overflow(e) {
     const out = [...boneLimits.excess(e.name)];
@@ -1012,24 +1073,24 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const shapes = groupSel.value === 'shapes';
     const val = e && key ? tweaks.get(editKey(), e.name) : { rot: [0, 0, 0], pos: [0, 0, 0], w: 0 };
     boneTitle.textContent = shapes ? 'Vorm' : 'Luu';
-    boneSliders.forEach(({ row, text, range, out, i }) => {
-      // a shape key has a single number, its weight: only the first slider is used, relabelled
-      row.style.display = shapes && i > 0 ? 'none' : '';
-      text.textContent = shapes && i === 0 ? 'Kaal' : SLIDERS[i];
-      range.disabled = !e || !key;
-      if (shapes) {
-        Object.assign(range, { min: -1, max: 1, step: 0.01, value: val.w });
-        out.textContent = i === 0 ? val.w.toFixed(2) : '';
-        return;
-      }
-      // a bone that nothing else poses turns exactly as far as its slider says, so its limits are the slider's ends;
-      // the arms and fingers are posed by the hand code first and the slider only adds to that, so there the limits clamp the result
-      const lim = limitsOnBox.checked && e && !e.drivesRot ? boneLimits.get(e.name)?.[AXES[i]] : null;
-      const lowest = Math.max(-ROT_RANGE, lim?.[0] ?? -ROT_RANGE, caps[i].min ?? -ROT_RANGE);
-      const highest = Math.min(ROT_RANGE, lim?.[1] ?? ROT_RANGE, caps[i].max ?? ROT_RANGE);
-      Object.assign(range, { min: Math.min(lowest, val.rot[i]), max: Math.max(highest, val.rot[i]), step: 1, value: val.rot[i] });
-      out.textContent = `${val.rot[i]}°`;
-    });
+    // a shape key has a single number, its weight; a bone has its rotation and position offset, and the gizmo to change them
+    const usable = !!e && !!key;
+    gizmoRow.hidden = axisHead.hidden = rotRow.row.hidden = posRow.row.hidden = shapes;
+    weightRow.hidden = !shapes;
+    // (a field being typed in keeps its text until it loses focus)
+    const put = (field, value) => {
+      field.disabled = !usable;
+      if (document.activeElement !== field) field.value = round3(value);
+    };
+    rotRow.fields.forEach(({ field }, i) => put(field, val.rot[i]));
+    posRow.fields.forEach(({ field }, i) => put(field, val.pos[i]));
+    put(weight.field, val.w);
+    modeRotBtn.classList.toggle('fd__on', gizmo.mode === 'rotate');
+    modeMoveBtn.classList.toggle('fd__on', gizmo.mode === 'translate');
+    spaceBtn.textContent = gizmo.space === 'local' ? 'Luu telgedes' : 'Maailma telgedes';
+    spaceBtn.title = 'Gizmo teljed: luu enda telgedes või maailma telgedes (vahetamiseks klõpsa)';
+    modeRotBtn.disabled = modeMoveBtn.disabled = spaceBtn.disabled = !usable || !e.bone;
+    attachGizmo();
     refreshLimits();
     resetBoneBtn.disabled = !e || !key;
     mirrorBox.disabled = !e?.mirrorName;
@@ -1048,7 +1109,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const selectBone = (i) => {
     selected = i;
     adjust.bone = null;
-    caps.forEach((c) => (c.min = c.max = undefined));
     refreshBone();
   };
 
@@ -1083,17 +1143,38 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
     bonesChanged(id);
   };
-  boneSliders.forEach(({ range, i }) => {
-    range.addEventListener('pointerdown', () => Object.assign(adjust, { bone: sel(), i, until: Infinity }));
-    range.addEventListener('input', () => {
-      const e = sel();
-      if (!e || !key) return;
-      if (!e.shape) Object.assign(adjust, { bone: e, i, until: adjust.until === Infinity ? Infinity : performance.now() + 300 });
-      const x = boneSliders.map((s) => +s.range.value);
-      writeBone(e, e.shape ? { w: x[0] } : { rot: x, pos: tweaks.get(editKey(), e.name).pos }, `bone:${e.name}:${key}`); // the position offset stays as it is
-      refreshBone();
-    });
+  // the numbers typed in: the rotation or the position offset (the other one stays as it is)
+  const typed = (part, row) => () => {
+    const e = sel();
+    if (!e || !key || e.shape) return;
+    const now = tweaks.get(editKey(), e.name);
+    const next = row.fields.map((f, i) => f.read() ?? now[part][i]); // (a field that is empty or half typed keeps its value)
+    Object.assign(adjust, { bone: e, until: performance.now() + 300 });
+    writeBone(e, { rot: part === 'rot' ? next : now.rot, pos: part === 'pos' ? next : now.pos }, editId(e));
+    refreshBone();
+  };
+  for (const [part, row] of [['rot', rotRow], ['pos', posRow]]) {
+    for (const { field } of row.fields) {
+      field.addEventListener('input', typed(part, row));
+      field.addEventListener('blur', () => refreshBone()); // shows what the limits made of it
+    }
+  }
+  weight.field.addEventListener('input', () => {
+    const e = sel();
+    const w = weight.read();
+    if (!e?.shape || !key || w === null) return;
+    writeBone(e, { w }, editId(e));
+    refreshBone();
   });
+  weight.field.addEventListener('blur', () => refreshBone());
+  const setGizmo = (apply) => {
+    apply();
+    saveUi();
+    refreshBone();
+  };
+  modeRotBtn.addEventListener('click', () => setGizmo(() => gizmo.setMode('rotate')));
+  modeMoveBtn.addEventListener('click', () => setGizmo(() => gizmo.setMode('translate')));
+  spaceBtn.addEventListener('click', () => setGizmo(() => gizmo.setSpace(gizmo.space === 'local' ? 'world' : 'local')));
   // The limits: stored for the bone, and for its mirror twin when the mirror box is ticked. A blank side stays free (the full turn).
   const orderRange = (lo, hi, side) => (lo !== null && hi !== null && lo > hi ? (side === 'lo' ? [lo, lo] : [hi, hi]) : [lo, hi]); // (the side that was just set wins)
   const setLimit = (e, axis, lo, hi, id, side) => {
@@ -1195,7 +1276,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let down = null;
-  dom.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
+  dom.addEventListener('pointerdown', (e) => (down = gizmo.axis ? null : { x: e.clientX, y: e.clientY })); // (a press on the gizmo picks nothing)
   dom.addEventListener('pointerup', (e) => {
     if (!isOpen || !down) return;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
@@ -1690,7 +1771,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let tlCollapsed = !!readLS(UI_KEY)?.tlCollapsed;
   let blocksCollapsed = !!readLS(UI_KEY)?.blocksCollapsed; // with the blocks hidden the dock is only as tall as its bar and timeline
   const shown = () => height - (tlCollapsed ? TL_TRACKS_H : 0); // the dock's height on screen
-  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed });
+  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed, gizmoMode: gizmo.mode, gizmoSpace: gizmo.space });
   let height = clamp(readLS(UI_KEY)?.height ?? Math.min(500, Math.round(window.innerHeight * 0.58)), MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
   const applyHeight = () => {
     height = clamp(height, MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
@@ -1779,6 +1860,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     document.body.classList.remove('fd-open');
     markers.visible = false;
     lines.visible = hot.visible = false;
+    attachGizmo();
     freeze(null);
     saveUi();
     onLayout(0);
@@ -1827,22 +1909,23 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       let h = 0;
       const e = sel();
 
-      // the slider being moved goes back with the bone when the limits hold it (see overflow)
+      // the bone being turned goes back where the limits hold it (see overflow)
       if (adjust.bone && adjust.bone === e && !e.shape && key) {
-        if (performance.now() > adjust.until) {
-          adjust.bone = null;
-          caps.forEach((c) => (c.min = c.max = undefined));
-          refreshBone();
-        } else {
-          const ex = overflow(e)[adjust.i];
-          if (Math.abs(ex) >= 0.5) {
+        if (performance.now() > adjust.until) adjust.bone = null;
+        else {
+          const ex = overflow(e);
+          if (ex.some((x) => Math.abs(x) >= 0.5)) {
             const now = tweaks.get(editKey(), e.name);
-            now.rot[adjust.i] = Math.round(now.rot[adjust.i] - ex);
-            caps[adjust.i] = ex > 0 ? { max: now.rot[adjust.i] } : { min: now.rot[adjust.i] };
-            writeBone(e, { rot: now.rot, pos: now.pos }, `bone:${e.name}:${key}`);
+            const rot = now.rot.map((r, i) => (Math.abs(ex[i]) >= 0.5 ? Math.round((r - ex[i]) * 10) / 10 : r));
+            writeBone(e, { rot, pos: now.pos }, editId(e));
             refreshBone();
           }
         }
+      }
+      // the gizmo follows the bone (it only goes its own way while it is held)
+      if (e?.bone && !gizmo.dragging) {
+        e.bone.getWorldPosition(proxy.position);
+        e.bone.getWorldQuaternion(proxy.quaternion);
       }
       if (showLines && e?.bone) {
         e.bone.getWorldPosition(pb);

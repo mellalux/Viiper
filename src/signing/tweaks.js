@@ -68,7 +68,9 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       name, bone, group, index: bones.length,
       armSide,
       rest: { q: bone.quaternion.clone(), p: bone.position.clone() },
+      base: { q: bone.quaternion.clone(), p: bone.position.clone() }, // the pose the tweak was last added to (see apply)
       parentInv: bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert(),
+      unit: bone.parent.getWorldScale(new THREE.Vector3()).x, // metres per local unit (0.01 on a rig in centimetres)
       drivesRot: rig?.rotDriven(name) ?? false,
       drivesPos: rig?.posDriven(name) ?? false,
       // body tweaks must land before the arms' IK reads the shoulders; everything else after hands/mouth have posed
@@ -135,6 +137,9 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
         e.active = w !== 0;
         continue;
       }
+      // what poses the bone without the tweak (the editor's gizmo works out the tweak from where the bone was dragged to)
+      e.base.q.copy(e.drivesRot ? e.bone.quaternion : e.rest.q);
+      e.base.p.copy(e.drivesPos ? e.bone.position : e.rest.p);
       const m = e.armSide ? weight(e.armSide) : 1;
       let any = false;
       for (let k = 0; k < 6; k++) if (Math.abs(cur[i + k] * m) > 1e-5) any = true;
@@ -143,7 +148,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       if (!e.drivesRot) e.bone.quaternion.copy(e.rest.q); // undriven bones restart from rest (this also undoes an old tweak)
       if (any) e.bone.quaternion.multiply(q.setFromEuler(eul.set(cur[i] * m * D2R, cur[i + 1] * m * D2R, cur[i + 2] * m * D2R)));
       if (!e.drivesPos) e.bone.position.copy(e.rest.p);
-      if (any) e.bone.position.add(v.set(cur[i + 3], cur[i + 4], cur[i + 5]).multiplyScalar(0.001 * m).applyQuaternion(e.parentInv));
+      if (any) e.bone.position.add(v.set(cur[i + 3], cur[i + 4], cur[i + 5]).multiplyScalar((0.001 * m) / e.unit).applyQuaternion(e.parentInv));
     }
   };
 
@@ -168,6 +173,29 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
         if (key !== GLOBAL && !Object.keys(bucket(key)).length) delete data.keys[key];
       }
       recompute(e.index); // jump straight there so sliders feel direct
+    },
+    /**
+     * The tweak that puts a bone at a given pose in the world, on top of the pose it has without any tweak (the inverse of
+     * `apply`). Used by the editor's gizmo.
+     * @param worldQ the wanted world orientation of the bone
+     * @param worldP the wanted world position of the bone
+     * @returns { rot, pos } degrees (Euler XYZ) and millimetres, rounded to one decimal; null for a shape key
+     */
+    tweakFor(name, worldQ, worldP) {
+      const e = byName.get(name);
+      if (!e?.bone) return null;
+      const parent = e.bone.parent;
+      parent.updateWorldMatrix(true, false);
+      const m = Math.max(e.armSide ? weight(e.armSide) : 1, 0.05); // the arm's tweaks fade with how far it is raised
+      const local = parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(worldQ);
+      const delta = e.base.q.clone().invert().multiply(local);
+      const euler = new THREE.Euler().setFromQuaternion(delta, 'XYZ');
+      const offset = parent.worldToLocal(worldP.clone()).sub(e.base.p).applyQuaternion(e.parentInv.clone().invert());
+      const tenth = (x) => Math.round(x * 10) / 10 || 0; // (|| 0 turns -0 into 0)
+      return {
+        rot: [euler.x, euler.y, euler.z].map((r) => tenth((r / D2R) / m)),
+        pos: offset.multiplyScalar((1000 * e.unit) / m).toArray().map(tenth),
+      };
     },
     /**
      * Copy the tweaks of `names` from sign `from` to sign `to`, replacing what `to` had for them. Only entries that are
