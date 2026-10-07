@@ -16,13 +16,13 @@ module.exports = {
       max_memory_restart: '300M',
       kill_timeout: 6000, // the server closes the database on SIGINT/SIGTERM
       pmx: false, // as in LifeSimu: pm2's module auto-instrumentation has crashed apps on the FreeBSD host
+      // Only what is set here goes in. PORT, HOST, DB_PATH ... come from the .env file in this folder (the server reads it itself),
+      // or, when the host hands them out as real environment variables (Elkdata: ELKDATA_APP_IP, PORT), from those.
       env: {
         NODE_ENV: 'production',
-        // the host (Elkdata) hands out the address and port the web server proxies to: use them, not our own
-        HOST: process.env.ELKDATA_APP_IP || process.env.HOST,
-        PORT: process.env.PORT || 3001,
         TRUST_PROXY: '1', // behind Apache / nginx / Caddy; remove when the port is exposed directly
-        // DB_PATH: '/var/lib/viiper/viiper.db',
+        ...(process.env.PORT && { PORT: process.env.PORT }),
+        ...((process.env.ELKDATA_APP_IP || process.env.HOST) && { HOST: process.env.ELKDATA_APP_IP || process.env.HOST }),
       },
     },
   ],

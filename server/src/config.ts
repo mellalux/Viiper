@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(serverRoot, '..');
 
+// settings from a .env file in the repository root (real environment variables win over it); no file is fine
+try {
+  process.loadEnvFile(path.join(repoRoot, '.env'));
+} catch {}
+
 const env = process.env;
 const production = env.NODE_ENV === 'production';
 

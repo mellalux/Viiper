@@ -35,11 +35,12 @@ git pull && npm ci && npm run build && pm2 reload viiper
 
 Keep it to one instance (SQLite is one file, the login limits live in memory). Put nginx or Caddy with HTTPS in front (the session cookie is `Secure`) and keep `TRUST_PROXY=1`. Back up the database file, `DB_PATH` (default `server/data/viiper.db`).
 
-### Configuration (environment variables of the server)
+### Configuration (environment variables of the server, or a `.env` file in the repository root)
 
 | Variable | Default | |
 | --- | --- | --- |
 | `PORT` | `3001` | |
+| `HOST`, `ELKDATA_APP_IP` | all interfaces | the address to listen on |
 | `DB_PATH` | `server/data/viiper.db` | the SQLite file (git-ignored) |
 | `NODE_ENV` | | `production` serves `client/dist`, sets `Secure` cookies and HSTS |
 | `COOKIE_SECURE` | on in production | `0` to test production mode over plain http |
