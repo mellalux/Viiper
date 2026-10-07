@@ -116,6 +116,10 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__num span:last-child { color: #9a9aa5; font-size: 12px; }
 .fd__xyz { display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); align-items: center; gap: 4px; }
 .fd__xyz input { width: 100%; }
+.fd-gizmo .fd__sliders { margin-top: -2px; }
+.fd-gizmo input[type=range] { width: 100%; min-width: 0; margin: 0; padding: 0; height: 18px; accent-color: #5fd0a0; background: none; border: 0; cursor: pointer; }
+.fd-gizmo input[type=range]:disabled { cursor: default; }
+.fd-gizmo .fd__weight { display: grid; grid-template-columns: 34px minmax(0, 1fr) 74px; align-items: center; gap: 8px; }
 .fd__xyzhead { display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); gap: 4px; color: #9a9aa5; font-size: 11px; text-align: center; }
 .fd__lim { display: grid; grid-template-columns: 14px 52px 52px 24px 24px minmax(0, 1fr); align-items: center; gap: 4px; }
 .fd__lim input { width: 100%; }
@@ -913,9 +917,41 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   };
   const rotRow = xyzRow('Pööre °', 0.1, 'Luu pööre puhkeasendi peal, kraadides (Euler XYZ, luu enda telgedes)');
   const posRow = xyzRow('Nihe mm', 0.1,'Luu nihe millimeetrites mudeli teljestikus (+X = tegelase vasak, +Y üles, +Z ette)');
-  const weightRow = el('label', 'fd__num');
+  const weightRow = el('label', 'fd__weight');
   const weight = numberField({ min: -1, max: 1, step: 0.01, value: 0 });
-  weightRow.append(el('span', '', 'Kaal'), weight.field, el('span'));
+  // A slider for a number field, as another way to set the same number: dragging it types the value into the field (the field's own
+  // listeners do the rest), and the field's value is shown on it. The slider's range is `span` either side of 0, widened (in steps of
+  // `span`) when the field holds more, so a big value is not pulled back to the end of the slider by touching it.
+  const sliders = new Map();
+  const addSlider = (field, span, step, title) => {
+    const slider = input('range', { min: -span, max: span, step, value: 0 });
+    slider.title = title;
+    slider.addEventListener('input', () => {
+      field.value = round3(+slider.value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    sliders.set(field, { slider, span });
+    field.addEventListener('input', () => syncSlider(field));
+    return slider;
+  };
+  const syncSlider = (field) => {
+    const s = sliders.get(field);
+    if (!s || document.activeElement === s.slider) return; // (not under the thumb being dragged)
+    const v = +field.value || 0;
+    const range = s.span * Math.max(1, Math.ceil(Math.abs(v) / s.span));
+    s.slider.min = -range;
+    s.slider.max = range;
+    s.slider.value = v;
+    s.slider.disabled = field.disabled;
+  };
+  const sliderRow = (fields, span, step, title) => {
+    const row = el('div', 'fd__xyz fd__sliders');
+    row.append(el('span'), ...fields.map(({ field }, i) => addSlider(field, span, step, `${title} ${AXES[i].toUpperCase()}`)));
+    return row;
+  };
+  const rotSliders = sliderRow(rotRow.fields, 45, 0.1, 'Pööre °');
+  const posSliders = sliderRow(posRow.fields, 20, 0.1, 'Nihe mm');
+  weightRow.append(el('span', '', 'Kaal'), addSlider(weight.field, 1, 0.01, 'Kaal'), weight.field);
   const axisHead = el('div', 'fd__xyzhead');
   axisHead.append(el('span'), ...AXES.map((a) => el('span', '', a.toUpperCase())));
   // They live in a floating panel of their own (draggable, shown while the dock is open), so they stay in reach whatever the dock shows.
@@ -925,7 +961,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const gizmoHint = el('div', 'fd__note');
   gizmoPanel.innerHTML = '<div class="panel__bar"><span class="panel__title">Luu gizmo</span><span class="panel__grip">⋮⋮</span></div>';
   const gizmoBody = el('div', 'fd-gizmo__body');
-  gizmoBody.append(gizmoBone, gizmoRow, gizmoHint, axisHead, rotRow.row, posRow.row, weightRow);
+  gizmoBody.append(gizmoBone, gizmoRow, gizmoHint, axisHead, rotRow.row, rotSliders, posRow.row, posSliders, weightRow);
   gizmoPanel.appendChild(gizmoBody);
   document.body.appendChild(gizmoPanel);
   makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 58]); // below the account button
@@ -1162,12 +1198,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     boneTitle.textContent = shapes ? 'Vorm' : 'Luu';
     // a shape key has a single number, its weight; a bone has its rotation and position offset, and the gizmo to change them
     const usable = !!e && !!key;
-    gizmoRow.hidden = axisHead.hidden = rotRow.row.hidden = posRow.row.hidden = shapes;
+    gizmoRow.hidden = axisHead.hidden = rotRow.row.hidden = posRow.row.hidden = rotSliders.hidden = posSliders.hidden = shapes;
     weightRow.hidden = !shapes;
     // (a field being typed in keeps its text until it loses focus)
     const put = (field, value) => {
       field.disabled = !usable;
       if (document.activeElement !== field) field.value = round3(value);
+      syncSlider(field);
     };
     rotRow.fields.forEach(({ field }, i) => put(field, val.rot[i]));
     posRow.fields.forEach(({ field }, i) => put(field, val.pos[i]));
