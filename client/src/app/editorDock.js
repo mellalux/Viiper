@@ -3,8 +3,8 @@ import { createFineTuner } from '../ui/fineTuner.js';
 import { params } from './session.js';
 import { say, press } from './signing.js';
 
-/** The fine-tuning dock (and its save button): only on the dev server, not in the production build. */
-export function createDevDock(c, { scene, camera, controls, renderer, setDockHeight }) {
+/** The fine-tuning dock (and its save button): for signed-in users; saving goes to the server. */
+export function createEditorDock(c, { scene, camera, controls, renderer, setDockHeight }) {
   const both = [c.hands, c.handsL];
   return createFineTuner({
     scene, camera, controls, dom: renderer.domElement, tweaks: c.tweaks, boneLimits: c.boneLimits, fingerLimits: c.limits, letters: Object.keys(SIGNS),

@@ -3,7 +3,9 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { askPin } from './pin.js';
+import { api, ApiError } from '../auth.js';
+import { versions } from '../data/store.js';
+import { askLogin } from './account.js';
 import { makeDraggable } from './draggable.js';
 import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
@@ -11,15 +13,15 @@ import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
 import { mirrorRange, axisMax } from '../signing/limits.js';
 
-// The fine-tuning window (dev server only): one horizontal dock along the bottom of the screen.
+// The fine-tuning window (signed-in editors only): one horizontal dock along the bottom of the screen.
 //   top    blocks side by side: pick a sign (search), the hand's pose, the fingers, a single bone, copying between signs
 //   bottom the timeline of the sign's motion: one track per channel, the playhead, the points of the path
 // What makes a sign (where the hand is held, the finger curls, the motion path) is edited per sign and hand and saved in the
 // sign's definition (signDefs.js); the rotation of single bones (arms and fingers, face and lips, body) and the weight of face
 // shape keys are tweaks (tweaks.js). Edits apply per sign (face, signing arm), only to the standby pose (the other arm) or
-// always (body). Both kinds are kept in localStorage as a working copy until "Salvesta faili" writes them into
-// src/data/fingerspelling.json / words.json (dev server only, behind the save PIN).
-// A bone can also get rotation limits (limits.js): min / max per axis, the same for every sign, saved in src/data/limits.json
+// always (body). Both kinds are kept in localStorage as a working copy until "Salvesta" saves them to the server (the database;
+// PUT /api/data, for signed-in users). Every sign carries a version: saving a sign somebody else saved meanwhile is refused.
+// A bone can also get rotation limits (limits.js): min / max per axis, the same for every sign, saved on the server too
 // and kept as a working copy the same way. The limits clamp the final pose of the bone, whatever poses it.
 // A selected bone is turned and moved in the scene with a TransformControls gizmo (on a proxy object that follows the bone; what it
 // is dragged to is turned back into the bone's tweak, see tweaks.tweakFor); everything else is edited in number fields.
@@ -27,9 +29,7 @@ const STORAGE_KEY = 'viiper.tweaks';
 const LIMITS_KEY = 'viiper.boneLimits';
 const STANDBY_KEY = 'viiper.standby';
 const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed, gizmoMode, gizmoSpace }
-const TWEAKS_URL = '/__save-sign-tweaks';
-const DEFS_URL = '/__save-sign-defs';
-const LIMITS_URL = '/__save-limits';
+const SAVE_URL = '/api/data';
 
 
 const FINGERS = ['Nimetissõrm', 'Keskmine sõrm', 'Sõrmusesõrm', 'Väike sõrm'];
@@ -51,7 +51,7 @@ const TL = { gutter: 84, right: 12, ruler: 20, row: 21 };
 
 const css = `
 .fd-launch {
-  position: fixed; z-index: 10; top: 16px; right: 16px; padding: 7px 14px; border-radius: 10px; cursor: pointer;
+  position: fixed; z-index: 10; top: 58px; right: 16px; padding: 7px 14px; border-radius: 10px; cursor: pointer;
   font: 600 13px system-ui, sans-serif; color: #e8e8ec; background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px);
 }
@@ -208,31 +208,48 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   };
 
   // ---------------------------------------------------------------- working copy of the bone tweaks
-  let fileState = canon(tweaks.export()); // what the data files hold
+  let fileState = canon(tweaks.export()); // what the server held when the page loaded
   let fileData = JSON.parse(fileState);
-  let base = fingerprint(fileState);
-  // The working copy remembers which file state it was made against. When the files have changed since (a reset, a git pull,
-  // a hand edit) it is stale and dropped, so old tweaks can't come back from the browser.
+  const same = (a, b) => canon(a ?? null) === canon(b ?? null);
+  // The working copy is kept per sign, with a fingerprint of what the server held for that sign when it was made. A sign that somebody
+  // else has saved since is dropped from the working copy (it would overwrite their work); the others stay.
+  const GLOBAL = '*';
+  const baseOf = (k) => fingerprint(canon((k === GLOBAL ? fileData.global : fileData.keys?.[k]) ?? null));
   const working = readLS(STORAGE_KEY);
-  if (working) {
-    if (working.base === base && working.data) tweaks.load(working.data);
-    else console.info('Dropped a stale working copy of the tweaks (the sign files have changed since it was made).');
+  if (working?.drafts) {
+    const next = structuredClone(fileData);
+    next.keys ??= {};
+    for (const [k, d] of Object.entries(working.drafts)) {
+      if (d.base !== baseOf(k)) {
+        console.info(`Dropped the working copy of the tweaks of ${k} (it was saved by someone else since).`);
+        continue;
+      }
+      if (k === GLOBAL) next.global = d.data ?? {};
+      else if (d.data) next.keys[k] = d.data;
+      else delete next.keys[k];
+    }
+    tweaks.load(next);
   }
-  try {
-    if (working?.base !== base) localStorage.removeItem(STORAGE_KEY);
-  } catch {}
 
-  // The working copy only lives in localStorage while it differs from the files.
+  // The working copy only lives in localStorage while it differs from the server's data.
   const saveTweaks = () => {
     try {
-      if (canon(tweaks.export()) === fileState) localStorage.removeItem(STORAGE_KEY);
-      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ base, data: tweaks.export() }));
+      const drafts = tweakDrafts();
+      if (!Object.keys(drafts).length) localStorage.removeItem(STORAGE_KEY);
+      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ drafts: Object.fromEntries(Object.entries(drafts).map(([k, data]) => [k, { base: baseOf(k), data }])) }));
     } catch {}
+  };
+  /** What differs from the loaded data: { sign: its tweaks (null: none left), '*': the body's tweaks }. */
+  const tweakDrafts = () => {
+    const now = tweaks.export();
+    const out = {};
+    if (!same(now.global, fileData.global)) out[GLOBAL] = now.global ?? {};
+    for (const k of new Set([...Object.keys(now.keys), ...Object.keys(fileData.keys ?? {})])) if (!same(now.keys[k], fileData.keys?.[k])) out[k] = now.keys[k] ?? null;
+    return out;
   };
   /** Signs (and '*' for the body) whose bone tweaks differ from the files. */
   const changedTweakKeys = () => {
     const now = tweaks.export();
-    const same = (a, b) => canon(a ?? null) === canon(b ?? null);
     const out = [];
     if (!same(now.global, fileData.global)) out.push('keha');
     for (const k of new Set([...Object.keys(now.keys), ...Object.keys(fileData.keys ?? {})])) if (!same(now.keys[k], fileData.keys?.[k])) out.push(k);
@@ -251,7 +268,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const workingLimits = readLS(LIMITS_KEY);
   if (workingLimits) {
     if (workingLimits.base === limitsBase && workingLimits.data) limitsLoad(workingLimits.data);
-    else console.info('Dropped a stale working copy of the limits (limits.json has changed since it was made).');
+    else console.info('Dropped a stale working copy of the limits (the limits were saved by someone else since).');
   }
   try {
     if (workingLimits?.base !== limitsBase) localStorage.removeItem(LIMITS_KEY);
@@ -284,9 +301,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       <span class="fd__status" data-role="status"></span>
       <button data-role="undo" title="Võta viimane muudatus tagasi (Ctrl+Z)">↶ Tagasi</button>
       <button data-role="redo" title="Tee tagasivõetud muudatus uuesti (Ctrl+Shift+Z või Ctrl+Y)">↷ Uuesti</button>
-      <button data-role="reset-sign" title="Märgi viipe seaded (käe asend, sõrmed, liikumine) tagasi sellele, mis failis on">Lähtesta märk</button>
-      <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb seaded failidest">Lae failist</button>
-      <button data-role="save-file" class="fd__primary" title="Kirjutab muudatused faili fingerspelling.json / words.json (ainult dev-serveris)">Salvesta faili</button>
+      <button data-role="reset-sign" title="Märgi viipe seaded (käe asend, sõrmed, liikumine) tagasi sellele, mis serveris on">Lähtesta märk</button>
+      <button data-role="load-file" title="Kustutab brauseri töökoopia ja laeb seaded nii, nagu leht need serverist laadis">Lae uuesti</button>
+      <button data-role="save-file" class="fd__primary" title="Salvestab muudatused serverisse (andmebaasi); nähtavad kõigile">Salvesta</button>
       <button data-role="close" title="Sulge">✕</button>
     </div>
     <div class="fd__blocks">
@@ -578,7 +595,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     recheckAll();
     clearHistory(); // the older steps know nothing of this sign
     updateStatus();
-    newNote.textContent = `Märk ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta faili kirjutab selle faili words.json.`;
+    newNote.textContent = `Märk ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta lisab selle serverisse (nähtav kõigile).`;
   }
   function deleteSign() {
     const gone = key;
@@ -892,7 +909,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   gizmoBody.append(gizmoBone, gizmoRow, axisHead, rotRow.row, posRow.row, weightRow);
   gizmoPanel.appendChild(gizmoBody);
   document.body.appendChild(gizmoPanel);
-  makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 16]);
+  makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 58]); // below the account button
   // (as in the dock: typing in the fields must not reach the letter shortcuts, and a field being let go ends the undo gesture)
   gizmoPanel.addEventListener('keydown', (e) => e.stopPropagation());
   gizmoPanel.addEventListener('keyup', (e) => e.stopPropagation());
@@ -1441,7 +1458,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   });
   $('load-file').addEventListener('click', () => {
     const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState || limitsChanged();
-    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded failidest? Salvestamata muudatused lähevad kaduma.')) return;
+    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded nii, nagu leht need serverist laadis? Salvestamata muudatused lähevad kaduma.')) return;
     try {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(LIMITS_KEY);
@@ -1451,7 +1468,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     for (const k of [...dirtySigns]) defs.resetSign(k);
     recheckAll();
     defs.persist();
-    copyNote.textContent = 'Laetud failidest, töökoopia kustutatud (Ctrl+Z võtab tagasi).';
+    copyNote.textContent = 'Laetud (nagu leht need serverist laadis), töökoopia kustutatud (Ctrl+Z võtab tagasi). Teiste uuemad muudatused tulevad lehe uuesti laadimisega.';
     renderHand();
     refreshBone();
     show(key);
@@ -1459,51 +1476,66 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     commit();
     updateStatus();
   });
+  /** PUT the changes; when the session has run out, ask for the password again and retry once. */
+  const putChanges = async (body) => {
+    try {
+      return await api('PUT', SAVE_URL, body);
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 401) throw err;
+      if (!(await askLogin('Seanss on lõppenud. Logi uuesti sisse, et muudatused salvestada.'))) throw new Error('salvestamine tühistati');
+      return api('PUT', SAVE_URL, body);
+    }
+  };
   saveBtn.addEventListener('click', async () => {
     const label = saveBtn.textContent;
     const signKeys = [...dirtySigns];
-    const created = signKeys.filter(defs.isNew); // signs that are not in the files yet
+    const created = signKeys.filter(defs.isNew); // signs that the server does not have yet
     const state = tweaks.export();
-    const tweaksDirty = canon(state) !== fileState;
+    const drafts = tweakDrafts();
     const limitsState = limitsExport();
     const limitsDirty = limitsChanged();
     try {
-      // is there a save endpoint at all? (only the dev server has one) - checked first so the PIN isn't asked in vain
-      const probe = await fetch(TWEAKS_URL).catch(() => null);
-      if (!probe?.ok) throw new Error('ainult dev-serveris (npm run dev)');
-      const pin = await askPin('fingerspelling.json-i / words.json-i / limits.json-i');
-      if (pin === null) return;
-      const post = async (url, body) => {
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Save-Pin': pin }, body: JSON.stringify(body) });
-        if (!res.ok) throw new Error(res.status === 404 ? 'ainult dev-serveris (npm run dev)' : await res.text());
-      };
-      // (the sign definitions go first: each request keeps what the other one writes - tweaks and definitions are separate fields)
-      if (signKeys.length) {
-        await post(DEFS_URL, { signs: Object.fromEntries(signKeys.map((k) => [k, defs.currentDef(k)])), create: created });
-        defs.markSaved(signKeys);
-        recheckAll();
-      }
-      if (tweaksDirty) {
-        await post(TWEAKS_URL, state);
+      if (!Object.keys(versions).length) throw new Error('lehe andmed pole serverist (server ei vastanud lehe laadimisel)');
+      // one request, saved all or nothing: every sign with the version it was edited from
+      const signs = {};
+      const entry = (k) => (signs[k] ??= defs.isNew(k) ? { create: true } : { base: versions[k] });
+      for (const k of signKeys) entry(k).def = defs.currentDef(k);
+      for (const [k, data] of Object.entries(drafts)) if (k !== GLOBAL) entry(k).tweaks = data;
+      const body = { signs };
+      if (GLOBAL in drafts) body.global = { tweaks: drafts[GLOBAL], base: versions['*global'] };
+      if (limitsDirty) body.limits = { ...limitsState, base: versions['*limits'] };
+      if (!Object.keys(signs).length && !body.global && !body.limits) {
+        saveBtn.textContent = 'Pole midagi salvestada';
+      } else {
+        const res = await putChanges(body);
+        Object.assign(versions, res.versions);
+        if (signKeys.length) {
+          defs.markSaved(signKeys);
+          recheckAll();
+        }
         fileState = canon(state);
         fileData = JSON.parse(fileState);
-        base = fingerprint(fileState);
-        saveTweaks(); // now equal to the files, so the working copy is dropped
+        saveTweaks(); // now equal to the server's data, so the working copy is dropped
+        if (limitsDirty) {
+          limitsFileState = canon(limitsState);
+          limitsFileData = JSON.parse(limitsFileState);
+          limitsBase = fingerprint(limitsFileState);
+          saveLimits();
+        }
+        clearHistory(); // the server's data is the baseline now
+        saveBtn.textContent = created.length ? 'Salvestatud ✓ – laen uuesti…' : 'Salvestatud ✓';
+        // the text box and the sign list read the word signs when the page loads: a new sign shows up there after a reload
+        if (created.length) setTimeout(() => location.reload(), 700);
       }
-      if (limitsDirty) {
-        await post(LIMITS_URL, limitsState);
-        limitsFileState = canon(limitsState);
-        limitsFileData = JSON.parse(limitsFileState);
-        limitsBase = fingerprint(limitsFileState);
-        saveLimits();
-      }
-      clearHistory(); // the files are the baseline now
-      saveBtn.textContent = created.length ? 'Salvestatud ✓ – laen uuesti…' : 'Salvestatud ✓';
-      // the text box and the sign list read the word signs when the page loads: a new sign shows up there after a reload
-      if (created.length) setTimeout(() => location.reload(), 700);
     } catch (err) {
       console.warn('Could not save', err);
-      saveBtn.textContent = `Ei õnnestunud: ${err.message}`;
+      const conflicts = err.body?.conflicts;
+      saveBtn.textContent = conflicts?.length
+        ? `Keegi teine salvestas vahepeal: ${conflicts.map((k) => (k === '*global' ? 'keha' : k === '*limits' ? 'piirid' : k)).join(', ')} – lae leht uuesti: nende märkide töökoopia asendub teise salvestatuga, ülejäänud muudatused säilivad`
+        : `Ei õnnestunud: ${err.message}`;
+      setTimeout(() => (saveBtn.textContent = label), conflicts?.length ? 9000 : 2500);
+      updateStatus();
+      return;
     }
     updateStatus();
     setTimeout(() => {

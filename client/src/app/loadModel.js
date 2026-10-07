@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { app, params } from './session.js';
 import { createCharacter } from './character.js';
-import { createDevDock } from './devDock.js';
+import { currentUser } from '../auth.js';
 import { installDebug } from '../debug.js';
 
 // Models live in src/assets/models/ and are bundled by Vite. The default is Kati.glb; pass ?model=ViiperGirl (the file name
@@ -24,12 +24,13 @@ const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 export function loadModel(stage, splash) {
   loader.load(
     MODEL_URL,
-    (gltf) => {
+    async (gltf) => {
       const root = gltf.scene;
       stage.scene.add(root);
       stage.frameUpperBody(root);
       const c = (app.character = createCharacter(gltf, stage));
-      if (import.meta.env.DEV) app.dock = createDevDock(c, stage);
+      // the sign editor: only for a signed-in user, and loaded only then (it is not part of what a visitor downloads)
+      if (currentUser()) app.dock = (await import('./editorDock.js')).createEditorDock(c, stage);
       c.start();
       installDebug({ ...c, controls: stage.controls, fineTuner: app.dock }, { params, pose: c.pose });
       if (params.has('blink')) c.blinker?.apply(+params.get('blink'));

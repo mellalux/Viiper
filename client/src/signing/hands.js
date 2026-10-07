@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import shared from '../data/shared.json';
-import fingerspelling from '../data/fingerspelling.json';
-import words from '../data/words.json';
+import { fingerspelling, words } from '../data/store.js';
 import { detectRig } from '../character/rigs.js';
 
 // Estonian finger-spelling (sõrmendid) on the model's right hand.

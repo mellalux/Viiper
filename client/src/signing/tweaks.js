@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import fingerspelling from '../data/fingerspelling.json';
-import words from '../data/words.json';
+import { fingerspelling, words } from '../data/store.js';
 import { STANDBY, SIGNS } from './hands.js';
 import { detectRig } from '../character/rigs.js';
 

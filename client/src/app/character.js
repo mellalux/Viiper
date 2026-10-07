@@ -14,6 +14,7 @@ import { createFingerGuard } from '../signing/fingerGuard.js';
 import { createTwist } from '../signing/twist.js';
 import { createArmPose } from '../signing/armPose.js';
 import * as signDefs from '../signing/signDefs.js';
+import { currentUser } from '../auth.js';
 import { app, params } from './session.js';
 
 /** Everything that makes the loaded model live: face, hands, limits, guards and the pose they are put in each frame. */
@@ -42,7 +43,7 @@ export function createCharacter(gltf, { scene, camera }) {
   };
   if (params.has('colliders')) c.setColliders(true);
 
-  if (import.meta.env.DEV) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
+  if (currentUser()) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
   c.hands = createHands(root, 'R', { body: c.body });
   c.handsL = createHands(root, 'L', { body: c.body });
   const hands = { R: c.hands, L: c.handsL };

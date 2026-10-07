@@ -1,5 +1,4 @@
-import fingerspelling from '../data/fingerspelling.json';
-import words from '../data/words.json';
+import { fingerspelling, words } from '../data/store.js';
 import { SIGNS, WORD_FORMS } from './hands.js';
 import { SIGN_FIELDS, SIGN_NAME } from './signFormat.js';
 import { canon, fingerprint } from '../util.js';

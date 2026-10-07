@@ -1,0 +1,22 @@
+{
+  "name": "viiper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w client && npm run build -w server",
+    "start": "npm run start -w server",
+    "test": "npm test -w server",
+    "seed": "npm run seed -w server --",
+    "export": "npm run export -w server --",
+    "user": "npm run user -w server --"
+  }
+}

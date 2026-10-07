@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import limitsFile from '../data/limits.json';
+import { limits as limitsFile } from '../data/store.js';
 import { detectRig } from '../character/rigs.js';
 
 // Joint limits for the finger bones, applied last (after hands.js has posed the fingers and the tweaks have been layered on

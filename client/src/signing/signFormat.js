@@ -1,5 +1,5 @@
-// What a sign's definition may hold and what a new sign may be called. Read by signDefs.js (the editor) and by vite.config.js,
-// whose save endpoint checks the same rules again before it writes a file.
+// What a sign's definition may hold and what a new sign may be called. Read by signDefs.js (the editor); the server has the same rules in server/src/signs/validate.ts,
+// which checks them again before it saves.
 
 /** The fields of a sign's definition, in the order they are written (`note` and `tweaks` are not part of it). */
 export const SIGN_FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'];
