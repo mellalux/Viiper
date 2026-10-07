@@ -21,6 +21,20 @@ npm start         # production: the server serves client/dist and the API (NODE_
 
 Open the URL Vite prints (usually http://localhost:5173). Without the server the page still works: it falls back to the signs it was built with (but nothing can be saved).
 
+### Running under pm2
+
+[ecosystem.config.cjs](ecosystem.config.cjs) starts the built server (`server/dist`, which also serves `client/dist`) as one process named `viiper`:
+
+```bash
+npm ci && npm run build
+ADMIN_USER=<name> ADMIN_PASSWORD=<password> pm2 start ecosystem.config.cjs   # the two variables only on the very first start
+pm2 save && pm2 startup                                                      # once per host: start on boot
+# later updates:
+git pull && npm ci && npm run build && pm2 reload viiper
+```
+
+Keep it to one instance (SQLite is one file, the login limits live in memory). Put nginx or Caddy with HTTPS in front (the session cookie is `Secure`) and keep `TRUST_PROXY=1`. Back up the database file, `DB_PATH` (default `server/data/viiper.db`).
+
 ### Configuration (environment variables of the server)
 
 | Variable | Default | |
