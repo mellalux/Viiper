@@ -267,7 +267,8 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     const shoulder = wp(upperArm);
     const wrist = wp(hand);
     const scale = (shoulder.distanceTo(wp(foreArm)) + wp(foreArm).distanceTo(wrist)) * cur.tw;
-    const target = wrist.clone().add(new THREE.Vector3(motion.off[0] * scale, motion.off[1] * scale, (motion.off[2] + bump) * scale));
+    const target = wrist.clone().add(new THREE.Vector3(motion.off[0] * scale * sgn, motion.off[1] * scale, (motion.off[2] + bump) * scale));
+    // (the left hand's x is mirrored too, so the same path is the mirror image on the left hand)
     // the motion's tilt / flex / roll turn the hand about its own axes (palm normal, thumb, fingers; the left hand's flex and
     // roll are mirrored so a number means the same for both hands)
     const [, , , tilt, flex, roll] = motion.off;

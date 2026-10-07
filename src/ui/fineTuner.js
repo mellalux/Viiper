@@ -4,6 +4,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { askPin } from './pin.js';
+import { makeDraggable } from './draggable.js';
 import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
@@ -65,6 +66,17 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
   box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px);
 }
 .fd[hidden], .fd [hidden] { display: none !important; }
+/* the gizmo panel: a floating panel (panels.css) with the dock's controls */
+.fd-gizmo { z-index: 12; width: 330px; font: 13px system-ui, sans-serif; }
+.fd-gizmo[hidden], .fd-gizmo [hidden] { display: none !important; }
+.fd-gizmo__body { display: grid; gap: 8px; padding: 10px 12px 12px; }
+.fd-gizmo button, .fd-gizmo input[type=number] { font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.fd-gizmo button { padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.fd-gizmo button:hover:not(:disabled) { background: #38383f; }
+.fd-gizmo button.fd__on { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
+.fd-gizmo button.fd__on:hover:not(:disabled) { background: #38b07d; }
+.fd-gizmo button:disabled, .fd-gizmo input:disabled { opacity: 0.4; cursor: default; }
+.fd-gizmo input[type=number] { min-width: 0; padding: 3px 6px; box-sizing: border-box; user-select: text; }
 .fd button, .fd select, .fd input[type=number], .fd input[type=search], .fd input[type=text] {
   font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px;
 }
@@ -96,13 +108,15 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__row > select { flex: 1; max-width: 190px; }
 .fd__buttons { display: flex; gap: 6px; }
 .fd__buttons > button { flex: 1; padding: 5px 4px; }
+.fd__handtabs { flex: none; }
+.fd__handtabs > button { flex: none; padding: 5px 10px; }
 .fd__num { display: grid; grid-template-columns: 1fr 74px 16px; align-items: center; gap: 6px; }
 .fd__num--axis { grid-template-columns: 14px 74px 16px; }
 .fd__num input { width: 100%; }
 .fd__num span:last-child { color: #9a9aa5; font-size: 12px; }
-.fd__xyz { display: grid; grid-template-columns: 52px repeat(3, minmax(0, 1fr)); align-items: center; gap: 4px; }
+.fd__xyz { display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); align-items: center; gap: 4px; }
 .fd__xyz input { width: 100%; }
-.fd__xyzhead { display: grid; grid-template-columns: 52px repeat(3, minmax(0, 1fr)); gap: 4px; color: #9a9aa5; font-size: 11px; text-align: center; }
+.fd__xyzhead { display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); gap: 4px; color: #9a9aa5; font-size: 11px; text-align: center; }
 .fd__lim { display: grid; grid-template-columns: 14px 52px 52px 24px 24px minmax(0, 1fr); align-items: center; gap: 4px; }
 .fd__lim input { width: 100%; }
 .fd__lim button { padding: 3px 0; }
@@ -266,6 +280,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       <span class="fd__title">Peenhäälestus</span>
       <button data-role="blocks-toggle" title="Näita / peida seadete plokid (märk, käe asend, sõrmed, luu, kopeerimine). Sama teeb topeltklõps ribal"></button>
       <span class="fd__current" data-role="current"></span>
+      <span data-role="hands"></span>
       <span class="fd__status" data-role="status"></span>
       <button data-role="undo" title="Võta viimane muudatus tagasi (Ctrl+Z)">↶ Tagasi</button>
       <button data-role="redo" title="Tee tagasivõetud muudatus uuesti (Ctrl+Shift+Z või Ctrl+Y)">↷ Uuesti</button>
@@ -503,10 +518,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     }
   });
 
-  const handTabs = el('div', 'fd__buttons');
+  // the hand the middle blocks and the timeline edit: in the bar, so it is at hand with the blocks folded away too
+  const handTabs = el('div', 'fd__buttons fd__handtabs');
   const tabR = el('button', '', 'Parem käsi');
   const tabL = el('button', '', 'Vasak käsi');
+  tabR.title = 'Käe asend, sõrmed ja liikumine: parem käsi';
+  tabL.title = 'Käe asend, sõrmed ja liikumine: vasak käsi';
   handTabs.append(tabR, tabL);
+  $('hands').replaceWith(handTabs);
   tabR.addEventListener('click', () => setHand('R'));
   tabL.addEventListener('click', () => setHand('L'));
   const standbyBox = input('checkbox', { checked: standbyOn });
@@ -537,7 +556,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const newNote = el('div', 'fd__note');
   const newCopyRow = el('label', 'fd__row');
   newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
-  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, handTabs, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
+  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
 
   function createSign() {
     const name = defs.normalizeName(newName.value);
@@ -864,6 +883,21 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   weightRow.append(el('span', '', 'Kaal'), weight.field, el('span'));
   const axisHead = el('div', 'fd__xyzhead');
   axisHead.append(el('span'), ...AXES.map((a) => el('span', '', a.toUpperCase())));
+  // They live in a floating panel of their own (draggable, shown while the dock is open), so they stay in reach whatever the dock shows.
+  const gizmoPanel = el('div', 'panel fd-gizmo');
+  gizmoPanel.hidden = true;
+  const gizmoBone = el('div', 'fd__note');
+  gizmoPanel.innerHTML = '<div class="panel__bar"><span class="panel__title">Luu gizmo</span><span class="panel__grip">⋮⋮</span></div>';
+  const gizmoBody = el('div', 'fd-gizmo__body');
+  gizmoBody.append(gizmoBone, gizmoRow, axisHead, rotRow.row, posRow.row, weightRow);
+  gizmoPanel.appendChild(gizmoBody);
+  document.body.appendChild(gizmoPanel);
+  makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 16]);
+  // (as in the dock: typing in the fields must not reach the letter shortcuts, and a field being let go ends the undo gesture)
+  gizmoPanel.addEventListener('keydown', (e) => e.stopPropagation());
+  gizmoPanel.addEventListener('keyup', (e) => e.stopPropagation());
+  gizmoPanel.addEventListener('change', () => endGesture());
+  gizmoPanel.addEventListener('focusout', () => endGesture());
   // rotation limits of the selected bone: per axis a min and a max (blank = free), buttons that take the bone's current angle
   const limitsOnBox = input('checkbox', { checked: true });
   limitsOnBox.title = 'Välja lülitatuna saab luu vabalt poosida (piirid jäävad alles)';
@@ -915,11 +949,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       row(el('span', '', 'Peegelda vastasküljele'), mirrorBox),
       row(el('span', '', 'Näita luujooni'), linesBox),
       boneLabel,
-      gizmoRow,
-      axisHead,
-      rotRow.row,
-      posRow.row,
-      weightRow,
       buttons,
       el('div', 'fd__sub', 'Pöörde piirid – kõigile märkidele (° puhkeasendist)'),
       row(el('span', '', 'Piirid kehtivad'), limitsOnBox),
@@ -929,7 +958,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       el('div', 'fd__note', '⇤ / ⇥ võtavad piiriks luu praeguse nurga. Punane nurk: luu on piiril ja see kärbiti. Tühi väli = piiranguta.'),
     );
   }
-  for (const g of GROUPS) if (g.id !== 'shapes' || tweaks.shapes.length) groupSel.add(new Option(g.label, g.id));
+  // the groups of tweaks.js, and two that join them: both hands at once, the whole skeleton (markers, bone list, reset and copy follow)
+  const JOINED = { hands: ['right', 'left'], all: ['right', 'left', 'face', 'body'] };
+  const groupOptions = [...GROUPS.filter((g) => g.id !== 'shapes' || tweaks.shapes.length), { id: 'hands', label: 'Mõlemad käed' }, { id: 'all', label: 'Kogu luustik' }];
+  const inGroup = (e, id = groupSel.value) => (JOINED[id] ? JOINED[id].includes(e.group) : e.group === id);
+  for (const g of groupOptions) groupSel.add(new Option(g.label, g.id));
   groupSel.value = tweaks.shapes.length ? 'shapes' : 'face'; // shape keys are how a shape-key face (Character Creator) is tuned
 
   // markers on the bones of the chosen group
@@ -990,7 +1023,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
 
   const fillBones = () => {
     boneSel.replaceChildren(new Option('–', ''));
-    items.forEach((e, i) => e.group === groupSel.value && boneSel.add(new Option(e.name, String(i))));
+    items.forEach((e, i) => inGroup(e) && boneSel.add(new Option(e.name, String(i))));
   };
 
   /** The limit fields of the selected bone (not while a shape key is selected: it has no rotation). */
@@ -1100,10 +1133,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const k = editKey();
       note = k === key ? '' : e.group === 'body' ? ' (kehtib alati)' : ' (ooteasend)';
     }
+    gizmoBone.innerHTML = e ? `<b>${e.name}</b>` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
       m.material = i === selected ? pickedMat : idleMat;
-      m.visible = bones[i].group === groupSel.value;
+      m.visible = inGroup(bones[i]);
     });
   };
   const selectBone = (i) => {
@@ -1125,9 +1159,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   focusBtn.addEventListener('click', () => {
     const shapes = groupSel.value === 'shapes';
     // shape keys have no bone of their own: look at the face instead
-    const target = sel()?.bone ?? bones.find((b) => b.group === (shapes ? 'face' : groupSel.value))?.bone;
+    const target = sel()?.bone ?? bones.find((b) => (shapes ? b.group === 'face' : inGroup(b)))?.bone;
     if (!target) return;
-    const dist = groupSel.value === 'face' || shapes ? 0.3 : groupSel.value === 'body' ? camera.position.distanceTo(controls.target) : 0.6;
+    const wide = ['body', 'hands', 'all'].includes(groupSel.value); // (those keep the distance the camera has)
+    const dist = groupSel.value === 'face' || shapes ? 0.3 : wide ? camera.position.distanceTo(controls.target) : 0.6;
     const dir = camera.position.clone().sub(controls.target).normalize();
     const p = target.getWorldPosition(new THREE.Vector3());
     controls.target.copy(p);
@@ -1256,7 +1291,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   });
   resetGroupBtn.addEventListener('click', () => {
     if (!key) return;
-    for (const e of items) if (e.group === groupSel.value) tweaks.set(tweaks.keyOf(e.name, key), e.name, null);
+    if (groupSel.value === 'all' && !confirm('Nullin kogu luustiku seaded selle märgi jaoks (ja keha seaded, mis kehtivad alati)? Ctrl+Z võtab tagasi.')) return;
+    for (const e of items) if (inGroup(e)) tweaks.set(tweaks.keyOf(e.name, key), e.name, null);
     bonesChanged();
     refreshBone();
   });
@@ -1298,6 +1334,77 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   copyScope.add(new Option('Valitud luu / vorm', 'bone'));
   const copyApply = el('button', '', 'Kopeeri siia');
   const copyNote = el('div', 'fd__note');
+  // one hand's pose onto the other (the same numbers, which pose the left hand as the mirror image) or the two swapped
+  const copyRL = el('button', '', 'Parem → vasak');
+  const copyLR = el('button', '', 'Vasak → parem');
+  const swapBtn = el('button', '', '⇄ Vaheta käed');
+  copyRL.title = 'Vasak käsi saab parema käe peegelpildi';
+  copyLR.title = 'Parem käsi saab vasaku käe peegelpildi';
+  swapBtn.title = 'Parem ja vasak käsi vahetavad asendid (peegelpildina)';
+  const handsRow = el('div', 'fd__buttons');
+  handsRow.append(copyRL, copyLR, swapBtn);
+  const handsBoneBox = input('checkbox', { checked: true });
+  const handsBones = el('label', 'fd__row');
+  handsBones.title = 'Võtab kaasa ka käsivarre, küünarvarre, käe ja sõrmeluude seaded (samad numbrid)';
+  handsBones.append(el('span', '', 'Käeluude seaded kaasa'), handsBoneBox);
+  const handsNote = el('div', 'fd__note');
+  const PART_FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion'];
+  const sidePart = (side) => (side === 'R' ? sign() : sign()?.left);
+  // What a hand is made of now: the fields of its definition (none: only its bones' tweaks pose it, as in Q). A left hand that takes
+  // no part in the sign waits in the standby pose: the standby sign's fingers, in the relaxed orient (as hands.js poses it).
+  const takePart = (side) => {
+    const own = sidePart(side);
+    const out = {};
+    if (!own) {
+      const st = SIGNS[STANDBY];
+      if (Array.isArray(st?.curl)) {
+        for (const f of ['curl', 'thumb', 'spread', 'knuckle']) if (st[f] !== undefined) out[f] = structuredClone(st[f]);
+        out.dir = 'relaxed';
+      }
+      return out;
+    }
+    for (const f of PART_FIELDS) if (own[f] !== undefined) out[f] = structuredClone(own[f]);
+    return out;
+  };
+  const putPart = (side, data) => {
+    const dst = side === 'R' ? sign() : (sign().left ??= {});
+    for (const f of PART_FIELDS) delete dst[f];
+    Object.assign(dst, data);
+  };
+  // (the numbers of the two hands mean the same: the hand code and tweaks.js mirror the left one, so they are copied as they are)
+  const handsDo = (mode) => () => {
+    if (!key) return void (handsNote.textContent = 'Vali kõigepealt märk.');
+    const sides = mode === 'RL' ? ['R', 'L'] : mode === 'LR' ? ['L', 'R'] : ['R', 'L']; // [from, to] (a swap goes both ways)
+    // the arm and finger bones' tweaks, read before anything changes: [the twin bone, the value it gets]
+    const moves = [];
+    if (handsBoneBox.checked) {
+      for (const [from, to] of mode === 'swap' ? [['R', 'L'], ['L', 'R']] : [sides]) {
+        const group = from === 'R' ? 'right' : 'left';
+        for (const e of tweaks.bones) {
+          const twin = e.group === group ? tweaks.twinOf(e.name) : null;
+          if (!twin) continue;
+          const now = tweaks.get(tweaks.keyOf(e.name, key), e.name);
+          moves.push([twin, { rot: now.rot, pos: now.pos }]);
+        }
+      }
+    }
+    const a = takePart(sides[0]);
+    const b = mode === 'swap' ? takePart(sides[1]) : null;
+    putPart(sides[1], a);
+    if (b) putPart(sides[0], b);
+    // (the left hand has its own key now, if it had none: the bones' keys are asked for after that)
+    for (const [twin, value] of moves) tweaks.set(tweaks.keyOf(twin, key), twin, value);
+    const act = `hands:${mode}:${Date.now()}`; // the definition and the tweaks are one step
+    renderHand();
+    changed(act);
+    bonesChanged(act);
+    refreshBone();
+    endGesture();
+    handsNote.textContent = mode === 'swap' ? `Käed vahetatud${handsBoneBox.checked ? '' : ' (ilma luude seadeteta)'}.` : mode === 'RL' ? 'Vasak käsi on nüüd parema peegelpilt.' : 'Parem käsi on nüüd vasaku peegelpilt.';
+  };
+  copyRL.addEventListener('click', handsDo('RL'));
+  copyLR.addEventListener('click', handsDo('LR'));
+  swapBtn.addEventListener('click', handsDo('swap'));
   {
     const r1 = el('label', 'fd__row');
     r1.append(el('span', '', 'Märgilt'), copyFrom);
@@ -1305,7 +1412,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     r2.append(el('span', '', 'Mida'), copyScope);
     const buttons = el('div', 'fd__buttons');
     buttons.append(copyApply);
-    blockCopy.append(el('div', 'fd__h', 'Kopeeri teisest märgist'), r1, r2, buttons, copyNote);
+    blockCopy.append(el('div', 'fd__h', 'Kopeeri teisest märgist'), r1, r2, buttons, el('div', 'fd__sub', 'Käte vahel (selles märgis)'), handsRow, handsBones, handsNote, copyNote);
   }
   copyApply.addEventListener('click', () => {
     const from = copyFrom.value;
@@ -1318,7 +1425,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     // (the mirror twin follows when the mirror box is ticked, as it does for the sliders)
     const names =
       scope === 'bone' ? [e.name, ...(mirrorBox.checked && e.mirrorName ? [e.mirrorName] : [])]
-      : items.filter((x) => scope === 'all' || x.group === groupSel.value).map((x) => x.name);
+      : items.filter((x) => scope === 'all' || inGroup(x)).map((x) => x.name);
     const { copied, cleared } = tweaks.copy(from, to, names);
     bonesChanged();
     refreshBone();
@@ -1838,6 +1945,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     launch.hidden = true;
     document.body.classList.add('fd-open');
     markers.visible = true;
+    gizmoPanel.hidden = false;
     saveUi();
     applyHeight();
     const start = next ?? currentSign() ?? key ?? letters.find((l) => l !== STANDBY);
@@ -1859,6 +1967,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     launch.hidden = false;
     document.body.classList.remove('fd-open');
     markers.visible = false;
+    gizmoPanel.hidden = true;
     lines.visible = hot.visible = false;
     attachGizmo();
     freeze(null);

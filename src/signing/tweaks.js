@@ -12,6 +12,8 @@ import { detectRig } from '../character/rigs.js';
 // Data lives in fingerspelling.json (letters) and words.json (word signs): `signs.<letter>.tweaks.<bone>` is applied while that sign is shown (face and the signing
 // arm); `global.<bone>` always applies (body). The other arm only ever waits in standby, so its tweaks sit under
 // the standby sign. Format of one entry: { "rot": [x, y, z], "pos": [x, y, z] }, either part optional.
+// The left arm's bones (the arm, hand and fingers) are mirrored when applied: the same numbers on a left bone turn / move it as the
+// mirror image of what they do on the right one (rotation about Y and Z and the X offset flip), so a pose can be copied between hands as it is.
 // Shape keys (face morph targets) work the same way: `{ "w": 0.3 }` adds that weight to the shape while the sign is shown.
 const GLOBAL = '*';
 
@@ -77,11 +79,16 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       phase: group === 'body' ? 'pre' : 'post',
       mirrorName: rig?.mirrorName(name) ?? null,
       active: false,
+      flip: armSide === 'L' ? -1 : 1, // the left arm's numbers are mirrored (see the header), so the same numbers pose it as the right arm's mirror image
     };
+    entry.twin = entry.mirrorName; // (the arm's bones keep it: mirrorName is dropped for them below, they are tuned per side)
     bones.push(entry);
     byName.set(name, entry);
   });
-  for (const e of bones) if (!byName.has(e.mirrorName) || e.group === 'right' || e.group === 'left') e.mirrorName = null;
+  for (const e of bones) {
+    if (!byName.has(e.twin)) e.twin = null;
+    if (!byName.has(e.mirrorName) || e.group === 'right' || e.group === 'left') e.mirrorName = null;
+  }
 
   // shape keys come after the bones in `items` (so bone indices stay put); each has one number, the weight
   const shapes = [];
@@ -146,9 +153,9 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       if (!any && !e.active) continue;
       e.active = any;
       if (!e.drivesRot) e.bone.quaternion.copy(e.rest.q); // undriven bones restart from rest (this also undoes an old tweak)
-      if (any) e.bone.quaternion.multiply(q.setFromEuler(eul.set(cur[i] * m * D2R, cur[i + 1] * m * D2R, cur[i + 2] * m * D2R)));
+      if (any) e.bone.quaternion.multiply(q.setFromEuler(eul.set(cur[i] * m * D2R, cur[i + 1] * e.flip * m * D2R, cur[i + 2] * e.flip * m * D2R)));
       if (!e.drivesPos) e.bone.position.copy(e.rest.p);
-      if (any) e.bone.position.add(v.set(cur[i + 3], cur[i + 4], cur[i + 5]).multiplyScalar((0.001 * m) / e.unit).applyQuaternion(e.parentInv));
+      if (any) e.bone.position.add(v.set(cur[i + 3] * e.flip, cur[i + 4], cur[i + 5]).multiplyScalar((0.001 * m) / e.unit).applyQuaternion(e.parentInv));
     }
   };
 
@@ -157,6 +164,8 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     bones,
     /** [{ name, group: 'shapes', mirrorName }] for the shape keys worth tuning (none on rigs without shape keys). */
     shapes,
+    /** The same bone on the other side of the body (an arm bone's twin too, unlike `mirrorName`), or null. */
+    twinOf: (name) => byName.get(name)?.twin ?? null,
     /** Key a bone's tweak is stored under when `letter` is the sign being edited. */
     keyOf: (name, letter) => keyOf(byName.get(name), letter),
     get(key, name) {
@@ -193,8 +202,8 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       const offset = parent.worldToLocal(worldP.clone()).sub(e.base.p).applyQuaternion(e.parentInv.clone().invert());
       const tenth = (x) => Math.round(x * 10) / 10 || 0; // (|| 0 turns -0 into 0)
       return {
-        rot: [euler.x, euler.y, euler.z].map((r) => tenth((r / D2R) / m)),
-        pos: offset.multiplyScalar((1000 * e.unit) / m).toArray().map(tenth),
+        rot: [euler.x, euler.y * e.flip, euler.z * e.flip].map((r) => tenth((r / D2R) / m)),
+        pos: offset.multiplyScalar((1000 * e.unit) / m).multiply(v.set(e.flip, 1, 1)).toArray().map(tenth),
       };
     },
     /**
