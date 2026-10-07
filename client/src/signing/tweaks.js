@@ -224,14 +224,23 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     aimParent(name, worldTarget) {
       const parentName = api.aimParentOf(name);
       if (!parentName) return null;
-      const parent = byName.get(parentName).bone;
+      const pe = byName.get(parentName);
+      const parent = pe.bone;
       const pivot = parent.getWorldPosition(new THREE.Vector3());
-      const from = byName.get(name).bone.getWorldPosition(new THREE.Vector3()).sub(pivot);
-      const to = worldTarget.clone().sub(pivot);
+      const shown = parent.getWorldQuaternion(new THREE.Quaternion()); // the parent as it is shown (the guards and limits have had their say)
+      // the parent as its tweak alone poses it, and what was done to it after (the guards): turning is worked out from the first,
+      // so the guards' share is not counted into the tweak again with every move
+      const i = pe.index * 6;
+      const m = pe.armSide ? weight(pe.armSide) : 1;
+      const own = pe.base.q.clone().multiply(q.setFromEuler(eul.set(cur[i] * m * D2R, cur[i + 1] * pe.flip * m * D2R, cur[i + 2] * pe.flip * m * D2R)));
+      const posed = parent.parent.getWorldQuaternion(new THREE.Quaternion()).multiply(own);
+      const guarded = posed.clone().multiply(shown.clone().invert()); // shown = guarded * posed, so this is guarded^-1 (applied to the target)
+      const child = byName.get(name).bone.getWorldPosition(new THREE.Vector3()).sub(pivot).applyQuaternion(shown.clone().invert()); // the bone rigid in the parent's frame
+      const from = child.applyQuaternion(posed);
+      const to = worldTarget.clone().sub(pivot).applyQuaternion(guarded);
       if (from.lengthSq() < 1e-12 || to.lengthSq() < 1e-12) return null;
       const turn = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize());
-      const wanted = parent.getWorldQuaternion(new THREE.Quaternion()).premultiply(turn);
-      return { name: parentName, rot: api.tweakFor(parentName, wanted, pivot).rot };
+      return { name: parentName, rot: api.tweakFor(parentName, posed.premultiply(turn), pivot).rot };
     },
     /**
      * Copy the tweaks of `names` from sign `from` to sign `to`, replacing what `to` had for them. Only entries that are

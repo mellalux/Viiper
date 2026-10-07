@@ -417,7 +417,25 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const redoStack = [];
   let last = null; // the state after the latest edit
   let lastEdit = { id: null };
-  const endGesture = () => (lastEdit.id = null);
+  // A gizmo drag edits at the pointer's pace (up to 100 a second); the keeping of the working copy, the undo snapshot and the screen
+  // are brought up to date once a frame instead (and for good when the gesture ends).
+  let soon = 0; // the animation frame that will do it
+  let soonId = null;
+  const flushBones = () => {
+    if (!soon) return;
+    cancelAnimationFrame(soon);
+    soon = 0;
+    bonesChanged(soonId);
+    refreshBone();
+  };
+  const bonesChangedSoon = (id) => {
+    soonId = id;
+    if (!soon) soon = requestAnimationFrame(flushBones);
+  };
+  const endGesture = () => {
+    flushBones();
+    lastEdit.id = null;
+  };
   function commit(id) {
     const snap = snapshot();
     if (snap === last) return;
@@ -1083,7 +1101,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   gizmo.setSize(0.9);
   gizmo.setMode(readLS(UI_KEY)?.gizmoMode === 'translate' ? 'translate' : 'rotate');
   gizmo.setSpace(readLS(UI_KEY)?.gizmoSpace === 'world' ? 'world' : 'local');
-  gizmo.detach();
+  gizmo.detach(); 
   scene.add(gizmo.getHelper());
   gizmo.addEventListener('dragging-changed', (ev) => {
     controls.enabled = !ev.value; // the orbit must not turn the view with it
@@ -1093,9 +1111,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   });
   const gizmoQ = new THREE.Quaternion();
   const gizmoP = new THREE.Vector3();
+  // A press on the gizmo is a click until the pointer has gone a few pixels: a click picks the marker under the gizmo (see below),
+  // so the gizmo changes nothing before that. (It works from the pointer's place, so nothing is lost by waiting.)
+  const CLICK_PX = 4;
+  const press = { onGizmo: false, armed: false, x: 0, y: 0, lx: 0, ly: 0 }; // where it started, and where the pointer is now
   gizmo.addEventListener('objectChange', () => {
     const e = sel();
     if (!e?.bone || !key) return;
+    if (press.onGizmo && !press.armed) {
+      if (Math.hypot(press.lx - press.x, press.ly - press.y) <= CLICK_PX) return;
+      press.armed = true;
+    }
     proxy.getWorldQuaternion(gizmoQ);
     proxy.getWorldPosition(gizmoP);
     // An arm or finger bone is not moved off its joint: moving it turns the bone it hangs on (the forearm for the wrist) about that
@@ -1104,15 +1130,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (aim) {
       const turned = bones.find((b) => b.name === aim.name);
       Object.assign(adjust, { bone: turned, until: Infinity });
-      writeBone(turned, { rot: aim.rot, pos: tweaks.get(tweaks.keyOf(turned.name, key), turned.name).pos }, editId(e));
-      refreshBone();
+      writeBone(turned, { rot: aim.rot, pos: tweaks.get(tweaks.keyOf(turned.name, key), turned.name).pos }, editId(e)); // (the screen follows once a frame)
       return;
     }
     const t = tweaks.tweakFor(e.name, gizmoQ, gizmoP);
     const now = tweaks.get(editKey(), e.name);
     Object.assign(adjust, { bone: e, until: Infinity });
     writeBone(e, gizmo.mode === 'rotate' ? { rot: t.rot, pos: now.pos } : { rot: now.rot, pos: t.pos }, editId(e)); // (only what the gizmo is turning changes)
-    refreshBone();
   });
   /** The gizmo is shown on the selected bone while the dock is open (a shape key has nothing to turn). */
   const attachGizmo = () => {
@@ -1208,7 +1232,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const writeBone = (e, value, id) => {
     tweaks.set(tweaks.keyOf(e.name, key), e.name, value); // (e is not always the selected bone: the gizmo may turn its parent)
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
-    bonesChanged(id);
+    bonesChangedSoon(id);
   };
   // the numbers typed in: the rotation or the position offset (the other one stays as it is)
   const typed = (part, row) => () => {
@@ -1344,17 +1368,24 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   let down = null;
-  dom.addEventListener('pointerdown', (e) => (down = gizmo.axis ? null : { x: e.clientX, y: e.clientY })); // (a press on the gizmo picks nothing)
+  dom.addEventListener('pointermove', (e) => Object.assign(press, { lx: e.clientX, ly: e.clientY }));
+  dom.addEventListener('pointerdown', (e) => {
+    Object.assign(press, { onGizmo: !!gizmo.axis, armed: false, x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY });
+    down = e.button === 0 ? { x: e.clientX, y: e.clientY, onGizmo: !!gizmo.axis } : null;
+  });
   dom.addEventListener('pointerup', (e) => {
     if (!isOpen || !down) return;
+    const { onGizmo } = down;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     down = null;
-    if (moved > 4) return;
+    press.onGizmo = false;
+    if (moved > CLICK_PX) return;
     const r = dom.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObjects(markers.children.filter((m) => m.visible), false)[0];
     if (hit) selectBone(hit.object.userData.index);
+    else if (selected >= 0 && !onGizmo) selectBone(-1); // a click on nothing lets go of the bone, and the gizmo goes
   });
 
   // ---------------------------------------------------------------- block: copy another sign's bone tweaks onto this one
