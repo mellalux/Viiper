@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { makeDraggable } from './draggable.js';
 import { SIGNS, STANDBY, ORIENT, HAND_CONFIG } from '../signing/hands.js';
+import { orientLabel } from './labels.js';
 import * as orients from '../signing/orients.js';
 
 // The base-pose mode of the fine-tuning window (signed-in editors only): edits one named orient (shared.json, `orient`: where a hand is
@@ -109,7 +110,7 @@ export function createBasePose({ scene, camera, controls, dom, tweaks, handOf, g
   panel.addEventListener('focusout', () => onEnd());
 
   const nameSel = document.createElement('select');
-  for (const n of orients.names()) nameSel.add(new Option(n, n));
+  for (const n of orients.names()) nameSel.add(new Option(orientLabel(n), n));
   const nameRow = el('label', 'fd__row');
   nameRow.append(el('span', '', 'Põhiasend'), nameSel);
   nameSel.addEventListener('change', () => {

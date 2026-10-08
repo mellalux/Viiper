@@ -14,6 +14,7 @@ import * as defs from '../signing/signDefs.js';
 import * as orients from '../signing/orients.js';
 import { createWorkingTable } from '../signing/workingTable.js';
 import { createBasePose } from './basePose.js';
+import { orientLabel, thumbLabel } from './labels.js';
 import { mirrorRange, axisMax } from '../signing/limits.js';
 
 // The fine-tuning window (signed-in editors only): one horizontal dock along the bottom of the screen.
@@ -819,7 +820,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       return;
     }
     const dirSel = document.createElement('select');
-    for (const name of Object.keys(ORIENT)) dirSel.add(new Option(name, name));
+    for (const name of Object.keys(ORIENT)) dirSel.add(new Option(orientLabel(name), name));
     dirSel.value = p.dir ?? defaultDir();
     dirSel.addEventListener('change', () => {
       dirSel.blur();
@@ -957,7 +958,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       return;
     }
     const thumbSel = document.createElement('select');
-    for (const name of Object.keys(THUMB_POSES)) thumbSel.add(new Option(name, name));
+    for (const name of Object.keys(THUMB_POSES)) thumbSel.add(new Option(thumbLabel(name), name));
     thumbSel.value = p.thumb ?? 'rest';
     thumbSel.addEventListener('change', () => {
       thumbSel.blur();
