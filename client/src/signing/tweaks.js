@@ -109,6 +109,9 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       phase: group === 'body' ? 'pre' : 'post',
       mirrorName: rig?.mirrorName(name) ?? null,
       active: false,
+      // the arm's twist helper bones (CC_Base_R_UpperarmTwist01 ...) only turn about their own long axis (Y): any other turn, or a move,
+      // crumples the skin there, so only the Y turn of such a bone is ever applied (see recompute)
+      twistOnly: /Twist\d*$/i.test(name),
       flip: armSide === 'L' ? -1 : 1, // the left arm's numbers are mirrored (see the header), so the same numbers pose it as the right arm's mirror image
     };
     entry.twin = entry.mirrorName; // (the arm's bones keep it: mirrorName is dropped for them below, they are tuned per side)
@@ -225,6 +228,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       const orient = suspended && (own || !e.armSide) ? suspendedOrient : orientFor(e.armSide ?? 'R', currentKey);
       const po = orient && data.poses[orient]?.[e.name];
       if (po) t = sumEntry(t, po);
+      if (e.twistOnly && t) t = { rot: [0, t.rot?.[1] ?? 0, 0], pos: [0, 0, 0] };
       const i = e.index * 6;
       for (let k = 0; k < 3; k++) {
         tgt[i + k] = e.shape ? (k === 0 ? (t?.w ?? 0) : 0) : (t?.rot?.[k] ?? 0);

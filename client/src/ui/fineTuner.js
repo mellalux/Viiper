@@ -133,8 +133,10 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__buttons > button { flex: 1; padding: 5px 4px; }
 .fd__handtabs { flex: none; }
 .fd__handtabs > button { flex: none; padding: 5px 10px; }
-.fd__num { display: grid; grid-template-columns: auto minmax(40px, 1fr) 62px 16px; align-items: center; gap: 6px; }
-.fd__num--axis { grid-template-columns: 14px minmax(40px, 1fr) 62px 16px; }
+/* (the label may shrink and wrap: with a fixed-width label the row grew wider than its column and ran into the next one) */
+.fd__num { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(24px, 1fr) 56px 12px; align-items: center; gap: 6px; min-width: 0; }
+.fd__num--axis { grid-template-columns: 14px minmax(24px, 1fr) 56px 12px; }
+.fd__num > span { min-width: 0; overflow-wrap: anywhere; }
 .fd__num input[type=number] { width: 100%; }
 .fd input[type=range] { width: 100%; min-width: 0; margin: 0; padding: 0; height: 18px; accent-color: #5fd0a0; background: none; border: 0; cursor: pointer; }
 .fd input[type=range]:disabled { cursor: default; }
@@ -153,7 +155,9 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__lim button { padding: 3px 0; }
 .fd__lim output { text-align: right; font-variant-numeric: tabular-nums; color: #9a9aa5; font-size: 12px; }
 .fd__lim output.fd__atlimit { color: #ff7a7a; font-weight: 600; }
-.fd__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 18px; }
+.fd__cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 14px; }
+.fd__cols > .fd__col { min-width: 0; overflow: hidden; } /* (what is too wide for its column is cut, never over the next one) */
+.fd__cols .fd__row { min-width: 0; }
 .fd__col[hidden] { display: none; }
 .fd__col { display: grid; gap: 3px; align-content: start; }
 .fd__fingers { display: grid; grid-template-columns: 92px repeat(3, minmax(0, 1fr)); gap: 3px 10px; align-items: center; }
@@ -363,7 +367,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     </div>
     <div class="fd__blocks">
       <section class="fd__block" data-role="b-sign" style="width: 260px"></section>
-      <section class="fd__block" data-role="b-orient" style="width: 600px"></section>
+      <section class="fd__block" data-role="b-orient" style="width: 680px"></section>
       <section class="fd__block" data-role="b-fingers" style="width: 460px"></section>
       <section class="fd__block" data-role="b-bone" style="width: 340px"></section>
       <section class="fd__block" data-role="b-copy" style="width: 220px"></section>
@@ -1559,6 +1563,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     };
     rotRow.fields.forEach(({ field }, i) => put(field, val.rot[i]));
     posRow.fields.forEach(({ field }, i) => put(field, val.pos[i]));
+    // a twist helper bone turns about Y only: its other fields are locked and the gizmo shows just the Y ring
+    const twist = !!e && !e.shape && isTwist(e);
+    if (twist) {
+      for (const { field } of [rotRow.fields[0], rotRow.fields[2], ...posRow.fields]) {
+        field.disabled = true;
+        syncSlider(field);
+      }
+    }
+    gizmo.showX = gizmo.showZ = !twist;
+    gizmo.showY = !twist || gizmo.mode === 'rotate';
     put(weight.field, val.w);
     bodyBtn.classList.toggle('fd__on', groupSel.value === 'all');
     faceBtn.classList.toggle('fd__on', groupSel.value === 'shapes' || groupSel.value === 'face');
@@ -1583,7 +1597,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
       m.material = i === selected ? pickedMat : idleMat;
-      m.visible = inGroup(bones[i]);
+      m.visible = inGroup(bones[i]) && !isTwist(bones[i]); // (the twist helper bones are picked from the list: a marker in the arm is easily hit by mistake)
     });
   };
   const selectBone = (i) => {
@@ -1619,7 +1633,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // mirrored bones: rotation about local X keeps its sign, Y and Z flip (Rigify mirrors with local X negated); X position flips
   // (a shape key's weight is the same on both sides)
   const mirrored = (v) => v && ('w' in v ? { w: v.w } : { rot: [v.rot[0], -v.rot[1], -v.rot[2]], pos: [-v.pos[0], v.pos[1], v.pos[2]] });
+  // a twist helper bone only turns about Y: the other turns and any move are dropped, whatever the gizmo or the fields say
+  const twistOnly = (e, v) => (e && !e.shape && isTwist(e) ? { rot: [0, v.rot?.[1] ?? 0, 0], pos: [0, 0, 0] } : v);
   const writeBone = (e, value, id) => {
+    value = twistOnly(e, value);
     holdAtFrame();
     tweaks.set(tweaks.keyOf(e.name, key), e.name, value); // (e is not always the selected bone: the gizmo may turn its parent)
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
