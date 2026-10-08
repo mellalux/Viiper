@@ -76,7 +76,8 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 }
 .fd[hidden], .fd [hidden] { display: none !important; }
 /* the gizmo panel: a floating panel (panels.css) with the dock's controls */
-.fd-gizmo { z-index: 12; width: 330px; font: 13px system-ui, sans-serif; }
+.fd-gizmo { z-index: 12; width: 330px; font: 13px system-ui, sans-serif; max-height: calc(100vh - 66px); display: flex; flex-direction: column; }
+.fd-gizmo > .fd-gizmo__body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; } /* a tall panel scrolls under its title bar */
 .fd-gizmo[hidden], .fd-gizmo [hidden] { display: none !important; }
 .fd-gizmo__body { display: grid; gap: 8px; padding: 10px 12px 12px; }
 .fd-gizmo button, .fd-gizmo input[type=number] { font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
