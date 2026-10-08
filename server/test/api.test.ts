@@ -240,6 +240,31 @@ describe('saving signs', () => {
     assert.deepEqual(data.fingerspelling.global, { Spine: { rot: [0, 5, 0] } });
     assert.equal((await editor.put('/api/data', { limits: { base: v['*limits'], bones: {} } })).status, 409); // stale
   });
+
+  it('saves the base poses and the thumb poses for everybody, and refuses malformed ones', async () => {
+    const editor = await login('editor', 'another long password');
+    const v = (await editor.get('/api/data')).json.versions;
+    const up = { finger: [0, 1, 0], thumb: [1, 0, 0], reach: [-0.1, 0.22, 0.5], maxBend: 70 };
+    const orient = (data: unknown) => editor.put('/api/data', { orients: { base: v['*orients'], data } });
+    assert.equal((await orient({ up: { finger: [0, 1], thumb: [1, 0, 0], reach: [0, 0, 0] } })).status, 400); // a vector of 2
+    assert.equal((await orient({ up: { ...up, evil: 1 } })).status, 400);
+    assert.equal((await orient({ up: { ...up, maxBend: 500 } })).status, 400);
+    const joints = [[0, 0, 0.5], [0.1, 0, 0], [0, 0, 0]];
+    assert.equal((await editor.put('/api/data', { thumbPoses: { base: v['*thumbPoses'], data: { cc: { up: { joints: [[0, 0, 0]] } } } } })).status, 400);
+
+    const res = await editor.put('/api/data', { orients: { base: v['*orients'], data: { up } }, thumbPoses: { base: v['*thumbPoses'], data: { cc: { up: { joints } } } } });
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    const seen = (await client().get('/api/data')).json; // somebody who is not signed in sees them
+    assert.deepEqual(seen.orients, { up });
+    assert.deepEqual(seen.thumbPoses, { cc: { up: { joints } } });
+    assert.equal(seen.versions['*orients'], (v['*orients'] ?? 0) + 1);
+    // another rig's poses are kept when one rig is saved; a stale save is a conflict
+    const w = (await editor.get('/api/data')).json.versions;
+    assert.equal((await editor.put('/api/data', { thumbPoses: { base: w['*thumbPoses'], data: { rigify: { up: { joints } } } } })).status, 200);
+    assert.deepEqual(Object.keys((await editor.get('/api/data')).json.thumbPoses).sort(), ['cc', 'rigify']);
+    assert.equal((await editor.put('/api/data', { orients: { base: v['*orients'], data: {} } })).status, 409);
+    assert.equal((await client().put('/api/data', { orients: { base: 0, data: {} } })).status, 401);
+  });
 });
 
 describe('audit log', () => {

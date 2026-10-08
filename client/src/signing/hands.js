@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import shared from '../data/shared.json';
-import { fingerspelling, words } from '../data/store.js';
+import { fingerspelling, words, orients as savedOrients, thumbPoses as savedThumbPoses } from '../data/store.js';
 import { detectRig } from '../character/rigs.js';
 
 // Estonian finger-spelling (sõrmendid) on the model's right hand.
@@ -34,6 +34,19 @@ export const HAND_CONFIG = {
   maxWristBend: 80, // degrees between forearm and fingers; a real wrist bends less than ~85°
   smoothing: 14,
 };
+
+// What the editors saved on the server (the base poses, the thumb poses) replaces the entries of shared.json, in place (the tables are
+// read live): for everybody who opens the page. The thumb poses are per rig (rigs.js): the generic table is the Rigify rig's.
+const replaceEntry = (table, name, entry) => {
+  const target = (table[name] ??= {});
+  for (const k of Object.keys(target)) delete target[k];
+  Object.assign(target, structuredClone(entry));
+};
+for (const [name, entry] of Object.entries(savedOrients)) replaceEntry(ORIENT, name, entry);
+export const THUMB_TABLES = { rigify: shared.thumbPoses, cc: shared.rigs?.cc?.thumbPoses };
+for (const [rig, poses] of Object.entries(savedThumbPoses)) {
+  if (THUMB_TABLES[rig]) for (const [name, entry] of Object.entries(poses)) replaceEntry(THUMB_TABLES[rig], name, entry);
+}
 
 export const THUMB_POSES = Object.fromEntries(Object.entries(shared.thumbPoses).map(([k, p]) => [k, p.joints]));
 
@@ -127,7 +140,6 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   const foreArm = get(names.foreArm);
   const hand = get(names.hand);
   if (!upperArm || !foreArm || !hand) return null;
-  const thumbPoses = Object.fromEntries(Object.entries(rig.thumbPoses).map(([k, p]) => [k, p.joints]));
 
   // Blender mirrors the left hand's bones with local X negated: a rotation about local X keeps its sign, one about Y or Z
   // flips, and world-space directions mirror in x.
@@ -169,6 +181,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
 
   /** Every bone this hand poses: upper arm, forearm, hand, then the finger and thumb joints. */
   const boneList = [upperArm, foreArm, hand, ...digits.flat().filter(Boolean).map((j) => j.bone), ...thumbs.filter(Boolean).map((j) => j.bone)];
+  let preview = null; // the base-pose editor: hold the hand in this named orient, whatever the sign says (see api.preview)
   let letter = null; // pose currently aimed at (a letter or STANDBY)
   let requested = null; // what the caller last asked for (null = no sign)
   let standby = true;
@@ -448,10 +461,10 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       if (!defined) return;
       // The standby sign may define its own orient (`dir`, `orient`); without, each hand waits in its named one. The left hand
       // waiting in a sign of its own has no say of its own in the standby sign's `dir` (that one is the right hand's).
-      const o = key !== STANDBY ? orientOf(sign.dir, sign.orient) : side === 'L' && !own ? orientOf(STANDBY_DIR.L) : orientOf(sign.dir ?? STANDBY_DIR[side], sign.orient);
+      const o = preview ? orientOf(preview) : key !== STANDBY ? orientOf(sign.dir, sign.orient) : side === 'L' && !own ? orientOf(STANDBY_DIR.L) : orientOf(sign.dir ?? STANDBY_DIR[side], sign.orient);
       tgt.curl = [...sign.curl];
       tgt.spread = sign.spread.map((s) => s * axisSign[rig.spreadAxis] * rig.spreadSign);
-      tgt.thumb = thumbPoses[sign.thumb].flat().map((v, i) => v * axisSign[i % 3]);
+      tgt.thumb = rig.thumbPoses[sign.thumb].joints.flat().map((v, i) => v * axisSign[i % 3]); // (read live: the editor changes the poses)
       tgt.knuckle = [...sign.knuckle];
       tgt.qHand = handQuat(o);
       tgt.reach.set(...o.reach);
@@ -497,6 +510,16 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       cur.maxBend += (tgt.maxBend - cur.maxBend) * k;
       pose();
       stepMotion(dt, k);
+    },
+    /**
+     * How far along its sign's path the hand is, 0..1 (0 during the lead-in and while the editor holds the start, the fraction it is
+     * held at while a pose is frozen, 1 once the path has ended); 0 for a sign without a path. The keyframes (tweaks.js) follow it.
+     */
+    get progress() {
+      const def = motion.def;
+      if (!def) return 0;
+      if (frozenAt !== null) return frozenAt;
+      return Math.min(Math.max((motion.t - MOTION_LEAD) / def.duration, 0), 1);
     },
     /** Move the hand along its sign's path; call after the tweaks have been applied. */
     applyMotion,
@@ -548,6 +571,42 @@ export function createHands(root, side = 'R', { body = null } = {}) {
         spread.push(s ? r2(Math.min(Math.max(twist(s, spreadAxis) * axisSign[rig.spreadAxis] * rig.spreadSign, -0.5), 0.5)) : 0);
       });
       return { orient: { reach: r3(mx(reach.toArray())), pole: r3(mx(pole.toArray())), finger: r3(mx(finger.toArray())), thumb: r3(mx(thumb.toArray())) }, bend, curl, spread, knuckle };
+    },
+    /**
+     * The base-pose editor: the hand is held in this named orient (the sign's own changes to it left out) from the next setSign /
+     * snapSign on; null puts the sign's own orient back. The sign's fingers stay.
+     */
+    set preview(name) {
+      preview = name;
+    },
+    get preview() {
+      return preview;
+    },
+    /**
+     * Where a stored orient (right-hand coordinates, as in shared.json) puts the hand in the world, for the base-pose editor's handles:
+     * `shoulder`, `elbow`, `wrist` (world positions now) and `length` (the full arm; reach is measured in these), `sgn` (-1 for the left hand:
+     * x is mirrored), and two functions: `quat({ finger, thumb })` the hand's world orientation of a stored orient, and `fromQuat(q)`
+     * the stored { finger, thumb } of a world orientation.
+     */
+    get frame() {
+      upperArm.updateWorldMatrix(true, false);
+      return {
+        shoulder: wp(upperArm),
+        elbow: wp(foreArm),
+        wrist: wp(hand),
+        length: l1 + l2,
+        sgn,
+        quat: (o) => handQuat({ finger: mx(o.finger), thumb: mx(o.thumb) }),
+        fromQuat: (qq) => ({ finger: mx(new THREE.Vector3(0, 1, 0).applyQuaternion(qq).toArray()), thumb: mx(new THREE.Vector3(0, 0, 1).applyQuaternion(qq).toArray()) }),
+      };
+    },
+    /** The thumb poses of this rig ({ name: { joints: [[x, y, z] × 3], note } }, the table the editor changes in place). */
+    get thumbPoses() {
+      return rig.thumbPoses;
+    },
+    /** The rig's name (rigs.js: the key of its thumb poses on the server). */
+    get rigId() {
+      return rig.id;
     },
     /** Debug: show the sign with its motion held at this fraction (0..1) of the path; null plays it normally. */
     freezeMotion(r) {

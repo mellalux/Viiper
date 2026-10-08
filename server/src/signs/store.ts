@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { HttpError } from '../auth/users.js';
-import { SIGN_FIELDS, buildLimits, canon, checkDef, checkSignName, checkTweaks, isObject, type Json, type Obj } from './validate.js';
+import { SIGN_FIELDS, buildLimits, canon, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isObject, type Json, type Obj } from './validate.js';
 
 // The signs are kept as documents: one row per sign holding its definition and its bone tweaks as JSON. The API hands them out in
 // the shape of the client's data files (fingerspelling.json, words.json, limits.json), so the client reads either.
@@ -23,7 +23,11 @@ export interface SignData {
   fingerspelling: { signs: Obj; global: Obj };
   words: { aliases: Obj; signs: Obj };
   limits: Obj;
-  /** Save counter of every sign and of "*global" and "*limits": what an edit is based on (see applyChanges). */
+  /** The named hand orients as the editors left them (all of them; none saved yet: empty, shared.json's stay) */
+  orients: Obj;
+  /** The thumb poses per rig ({ rig: { name: pose } }; none saved yet: empty) */
+  thumbPoses: Obj;
+  /** Save counter of every sign and of "*global", "*limits", "*orients" and "*thumbPoses": what an edit is based on (see applyChanges). */
   versions: Record<string, number>;
 }
 
@@ -55,6 +59,8 @@ export function readData(db: Db, { notes }: { notes: boolean }): SignData {
     fingerspelling: { signs: signs.letter, global: setting('global') },
     words: { aliases: setting('aliases'), signs: signs.word },
     limits: setting('limits'),
+    orients: setting('orients'),
+    thumbPoses: setting('thumbPoses'),
     versions,
   };
   return notes ? data : { ...(stripNotes(data as unknown as Json) as unknown as SignData), versions };
@@ -65,6 +71,10 @@ export interface Changes {
   signs?: Record<string, { create?: boolean; base?: number | null; def?: unknown; tweaks?: unknown }>;
   global?: { tweaks: unknown; base: number };
   limits?: { base: number; bones: unknown; finger?: unknown };
+  /** Every orient as it is now (replaces the saved ones). */
+  orients?: { base: number; data: unknown };
+  /** The thumb poses of the rigs sent: { rig: { name: pose } } (a rig not sent keeps its saved poses). */
+  thumbPoses?: { base: number; data: unknown };
 }
 
 const readSetting = (db: Db, key: string) => db.prepare('SELECT value, version FROM settings WHERE key = ?').get(key) as { value: string; version: number } | undefined;
@@ -152,6 +162,17 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
       if (!isObject(changes.limits)) throw new HttpError(400, 'Vigased "limits".');
       const old = readSetting(db, 'limits');
       setting('limits', changes.limits.base, buildLimits(changes.limits, old ? JSON.parse(old.value) : {}));
+    }
+    if (changes.orients !== undefined) {
+      if (!isObject(changes.orients)) throw new HttpError(400, 'Vigased "orients".');
+      checkOrients(changes.orients.data);
+      setting('orients', changes.orients.base, changes.orients.data);
+    }
+    if (changes.thumbPoses !== undefined) {
+      if (!isObject(changes.thumbPoses)) throw new HttpError(400, 'Vigased "thumbPoses".');
+      checkThumbPoses(changes.thumbPoses.data);
+      const old = readSetting(db, 'thumbPoses');
+      setting('thumbPoses', changes.thumbPoses.base, { ...(old ? JSON.parse(old.value) : {}), ...changes.thumbPoses.data });
     }
 
     if (conflicts.length) throw new HttpError(409, 'Keegi teine on neid vahepeal salvestanud.', { conflicts });

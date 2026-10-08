@@ -47,6 +47,34 @@ export function checkTweaks(t: unknown): asserts t is Obj {
   }
 }
 
+const TABLE_KEY = /^[\p{L}\p{N}_-]{1,40}$/u;
+
+/** The named hand orients (shared.json `orient`): { name: { finger, thumb, reach, pole?: [x, y, z], maxBend?: degrees, note?: text } }. */
+export function checkOrients(t: unknown): asserts t is Obj {
+  if (!isObject(t)) return bad('Põhiasendid peavad olema objekt.');
+  for (const [name, e] of Object.entries(t)) {
+    if (!TABLE_KEY.test(name) || !isObject(e)) return bad(`Vigane põhiasend "${name}".`);
+    for (const f of ['finger', 'thumb', 'reach']) if (!nums(e[f], 3)) return bad(`Põhiasendil "${name}" puudub või on vigane "${f}".`);
+    for (const [k, v] of Object.entries(e)) {
+      const ok = ['finger', 'thumb', 'reach', 'pole'].includes(k) ? nums(v, 3) : k === 'maxBend' ? num(v) && v >= 20 && v <= 120 : k === 'note' && typeof v === 'string' && v.length <= 400;
+      if (!ok) return bad(`Vigane väli "${name}.${k}".`);
+    }
+  }
+}
+
+/** The thumb poses per rig (shared.json `thumbPoses`, `rigs.<rig>.thumbPoses`): { rig: { name: { joints: [[x, y, z] × 3], note?: text } } }. */
+export function checkThumbPoses(t: unknown): asserts t is Obj {
+  if (!isObject(t)) return bad('Pöidla asendid peavad olema objekt.');
+  for (const [rig, poses] of Object.entries(t)) {
+    if (!TABLE_KEY.test(rig) || !isObject(poses)) return bad(`Vigased pöidla asendid mudelile "${rig}".`);
+    for (const [name, e] of Object.entries(poses)) {
+      if (!TABLE_KEY.test(name) || !isObject(e)) return bad(`Vigane pöidla asend "${name}".`);
+      if (!Array.isArray(e.joints) || e.joints.length !== 3 || !e.joints.every((j) => nums(j, 3) && j.every((x) => Math.abs(x) <= 6))) return bad(`Vigased liigesed pöidla asendil "${name}".`);
+      for (const [k, v] of Object.entries(e)) if (k !== 'joints' && !(k === 'note' && typeof v === 'string' && v.length <= 400)) return bad(`Vigane väli "${name}.${k}".`);
+    }
+  }
+}
+
 /** The new limits.json content from what the editor sends; the notes of the old one stay. */
 export function buildLimits(state: unknown, old: Obj): Obj {
   if (!isObject(state) || !isObject(state.bones)) return bad('Oodati { bones }.');

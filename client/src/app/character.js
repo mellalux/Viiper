@@ -14,6 +14,7 @@ import { createFingerGuard } from '../signing/fingerGuard.js';
 import { createTwist } from '../signing/twist.js';
 import { createArmPose } from '../signing/armPose.js';
 import * as signDefs from '../signing/signDefs.js';
+import * as orients from '../signing/orients.js';
 import { currentUser } from '../auth.js';
 import { app, params } from './session.js';
 
@@ -43,7 +44,10 @@ export function createCharacter(gltf, { scene, camera }) {
   };
   if (params.has('colliders')) c.setColliders(true);
 
-  if (currentUser()) signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
+  if (currentUser()) {
+    signDefs.restoreDrafts(); // sign definitions changed in the editor and not saved yet
+    orients.restoreDrafts(); // base poses changed in the editor (kept in this browser only)
+  }
   c.hands = createHands(root, 'R', { body: c.body });
   c.handsL = createHands(root, 'L', { body: c.body });
   const hands = { R: c.hands, L: c.handsL };

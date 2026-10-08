@@ -11,6 +11,7 @@ export function createArmPose({ scene, hands, handsL, tweaks, limits, boneLimits
   /** Everything posed for this frame (`frozen` holds the hands still; `tweakDt` lets the audit snap the tweaks). */
   function arms(dt, { frozen = false, tweakDt = dt } = {}) {
     tweaks?.setKey(hands?.key ?? null);
+    tweaks?.setProgress(hands?.progress ?? 0); // keyframes: the pose is mixed from the frames around the hand's place on its path
     tweaks?.step(tweakDt);
     tweaks?.applyPre(); // body offsets first: the arms' IK reads the shoulders
     for (const h of both) h?.update(frozen ? 0 : dt);

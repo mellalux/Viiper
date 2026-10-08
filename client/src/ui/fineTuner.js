@@ -11,6 +11,9 @@ import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
+import * as orients from '../signing/orients.js';
+import { createWorkingTable } from '../signing/workingTable.js';
+import { createBasePose } from './basePose.js';
 import { mirrorRange, axisMax } from '../signing/limits.js';
 
 // The fine-tuning window (signed-in editors only): one horizontal dock along the bottom of the screen.
@@ -23,10 +26,16 @@ import { mirrorRange, axisMax } from '../signing/limits.js';
 // PUT /api/data, for signed-in users). Every sign carries a version: saving a sign somebody else saved meanwhile is refused.
 // A bone can also get rotation limits (limits.js): min / max per axis, the same for every sign, saved on the server too
 // and kept as a working copy the same way. The limits clamp the final pose of the bone, whatever poses it.
+// The base poses (the named orients: where a hand is held and which way it points, shared by many signs) have a mode of their own
+// (basePose.js, opened from the hand's block): handles in the scene move the wrist, the elbow and the turn of the hand. The thumb poses
+// are edited in the fingers' block. Both are a working copy in this browser (orients.js, workingTable.js) until "Salvesta" saves them
+// to the server (the `orients` and `thumbPoses` documents): then everybody who opens the page sees them. (What a base pose does with the
+// body's bones, and the keyframes, are kept in this browser only.)
 // A selected bone is turned and moved in the scene with a TransformControls gizmo (on a proxy object that follows the bone; what it
 // is dragged to is turned back into the bone's tweak, see tweaks.tweakFor); everything else is edited in number fields.
 const STORAGE_KEY = 'viiper.tweaks';
 const LIMITS_KEY = 'viiper.boneLimits';
+const FRAMES_KEY = 'viiper.frames'; // the keyframes (tweaks.js): { frames, n: path length per sign }, this browser only
 const STANDBY_KEY = 'viiper.standby';
 const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed, gizmoMode, gizmoSpace }
 const SAVE_URL = '/api/data';
@@ -99,6 +108,18 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
   flex: none; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 8px 10px 10px; overflow-y: auto; overflow-x: hidden;
   border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.07);
 }
+/* a card folds sideways into a narrow strip with its title written upright (the button sits in the card's top right corner) */
+.fd__block { position: relative; }
+.fd__fold { position: sticky; top: 0; z-index: 2; flex: none; align-self: flex-end; height: 0; margin-bottom: -6px; }
+.fd__fold button { position: absolute; right: -2px; top: -4px; width: 22px; height: 22px; padding: 0 !important; line-height: 1; border-radius: 6px !important; font-size: 11px !important; }
+.fd__block > .fd__h, .fd__block--folded { cursor: grab; }
+.fd__block--moving, .fd__block--moving > .fd__h { cursor: grabbing; }
+.fd__block--moving { outline: 1px solid #5fd0a0; background: rgba(95, 208, 160, 0.1); }
+.fd__block--folded { width: 34px !important; padding: 8px 0 !important; align-items: center; overflow: hidden; }
+.fd__block--folded > *:not(.fd__fold) { display: none !important; }
+.fd__block--folded .fd__fold { position: static; height: auto; margin: 0; align-self: center; }
+.fd__block--folded .fd__fold button { position: static; }
+.fd__block--folded::after { content: attr(data-title); margin-top: 10px; writing-mode: vertical-rl; color: #c8c8d0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; }
 .fd__h { flex: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #c8c8d0; }
 .fd__sub { color: #9a9aa5; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
 .fd__note { color: #9a9aa5; font-size: 12px; line-height: 1.4; }
@@ -110,9 +131,13 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__buttons > button { flex: 1; padding: 5px 4px; }
 .fd__handtabs { flex: none; }
 .fd__handtabs > button { flex: none; padding: 5px 10px; }
-.fd__num { display: grid; grid-template-columns: 1fr 74px 16px; align-items: center; gap: 6px; }
-.fd__num--axis { grid-template-columns: 14px 74px 16px; }
-.fd__num input { width: 100%; }
+.fd__num { display: grid; grid-template-columns: auto minmax(40px, 1fr) 62px 16px; align-items: center; gap: 6px; }
+.fd__num--axis { grid-template-columns: 14px minmax(40px, 1fr) 62px 16px; }
+.fd__num input[type=number] { width: 100%; }
+.fd input[type=range] { width: 100%; min-width: 0; margin: 0; padding: 0; height: 18px; accent-color: #5fd0a0; background: none; border: 0; cursor: pointer; }
+.fd input[type=range]:disabled { cursor: default; }
+.fd__cell { display: grid; grid-template-columns: minmax(36px, 1fr) 58px; align-items: center; gap: 6px; }
+.fd__cell input[type=number] { width: 100%; }
 .fd__num span:last-child { color: #9a9aa5; font-size: 12px; }
 .fd__xyz { display: grid; grid-template-columns: 64px repeat(3, minmax(0, 1fr)); align-items: center; gap: 4px; }
 .fd__xyz input { width: 100%; }
@@ -234,6 +259,18 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     }
     tweaks.load(next);
   }
+  // The keyframes are only kept here (never on the server): a sign whose path has other points now than when they were made loses them.
+  // The arm bones turned for a base pose ("poses", see tweaks.js) are kept in the same place.
+  const savedFrames = readLS(FRAMES_KEY);
+  if (savedFrames?.frames || savedFrames?.poses) {
+    const frames = {};
+    for (const [k, f] of Object.entries(savedFrames.frames ?? {})) {
+      if (SIGNS[k]?.motion?.path.length === savedFrames.n?.[k]) frames[k] = f;
+      else console.info(`Dropped the keyframes of ${k} (its path has other points now).`);
+    }
+    const poses = Object.fromEntries(Object.entries(savedFrames.poses ?? {}).filter(([k]) => orients.names().includes(k)));
+    tweaks.load({ ...tweaks.export(), frames, poses });
+  }
 
   // The working copy only lives in localStorage while it differs from the server's data.
   const saveTweaks = () => {
@@ -241,6 +278,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const drafts = tweakDrafts();
       if (!Object.keys(drafts).length) localStorage.removeItem(STORAGE_KEY);
       else localStorage.setItem(STORAGE_KEY, JSON.stringify({ drafts: Object.fromEntries(Object.entries(drafts).map(([k, data]) => [k, { base: baseOf(k), data }])) }));
+    } catch {}
+    saveFrames();
+  };
+  const saveFrames = () => {
+    try {
+      const { frames, poses } = tweaks.export();
+      if (!Object.keys(frames).length && !Object.keys(poses).length) localStorage.removeItem(FRAMES_KEY);
+      else localStorage.setItem(FRAMES_KEY, JSON.stringify({ frames, poses, n: Object.fromEntries(Object.keys(frames).map((k) => [k, SIGNS[k]?.motion?.path.length ?? 0])) }));
     } catch {}
   };
   /** What differs from the loaded data: { sign: its tweaks (null: none left), '*': the body's tweaks }. */
@@ -284,6 +329,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       else localStorage.setItem(LIMITS_KEY, JSON.stringify({ base: limitsBase, data: limitsExport() }));
     } catch {}
   };
+
+  // the thumb poses (the thumb's three joints, per named pose) are changed here too, as a working copy until they are saved to the server
+  const thumbs = createWorkingTable(handOf('R')?.thumbPoses ?? {}, 'viiper.thumbPoses', 'thumb pose');
+  thumbs.restoreDrafts();
 
   let standbyOn = localStorage.getItem(STANDBY_KEY) !== '0';
 
@@ -359,6 +408,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let selPoint = 0; // the selected point of the motion path
   let playing = null; // { t0, timer } while the motion plays
   let playR = 0; // the playhead while playing
+  let base = null; // the base-pose mode (basePose.js), made below
+  const BLOCK_TITLES = { 'b-sign': 'Märk', 'b-orient': 'Käe asend', 'b-fingers': 'Sõrmed', 'b-bone': 'Luu peenhäälestus', 'b-copy': 'Kopeeri teisest märgist' };
+  const foldedBlocks = new Set((readLS(UI_KEY)?.folded ?? []).filter((r) => r in BLOCK_TITLES)); // the cards folded into a strip
+  let frameMode = false; // keyframes: the bone, shape and gizmo edits go to the selected point of the path (see syncFrame)
 
   const sign = () => (key ? SIGNS[key] : null);
   // the named orient a hand is in when the sign names none (the standby pose has one per hand)
@@ -381,7 +434,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (signs.length) parts.push(`viipe seaded: ${signs.join(', ')}`);
     if (bones.length) parts.push(`luud: ${bones.join(', ')}`);
     if (limitsChanged()) parts.push('luude piirid');
-    statusEl.textContent = parts.length ? `Salvestamata – ${parts.join(' · ')}` : 'Salvestamata muudatusi pole.';
+    if (orients.changedNames().length) parts.push(`põhiasendid: ${orients.changedNames().join(', ')}`);
+    if (thumbs.changedNames().length) parts.push(`pöidla asendid: ${thumbs.changedNames().join(', ')}`);
+    // (the keyframes and the bones of a base pose are not saved to the server: they only stay in this browser, so they don't count for the save button)
+    const frames = tweaks.frameSigns();
+    const poseBones = tweaks.poseNames();
+    const local = [
+      poseBones.length && `põhiasendite keha ja luud ainult selles brauseris: ${poseBones.join(', ')}`,
+      frames.length && `keyframe'id ainult selles brauseris: ${frames.join(', ')}`,
+    ].filter(Boolean).join(' · ');
+    statusEl.textContent = parts.length ? `Salvestamata – ${[...parts, ...(local ? [local] : [])].join(' · ')}` : local || 'Salvestamata muudatusi pole.';
     statusEl.classList.toggle('fd__status--dirty', parts.length > 0);
     statusEl.title = statusEl.textContent;
     saveBtn.disabled = !parts.length;
@@ -416,7 +478,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // Edits with the same `id` in a row (a slider being dragged, a number being typed) count as one step, however long they
   // take: the gesture ends when the slider is let go or the field loses focus (see endGesture). No id: one step each.
   const HISTORY_MAX = 200;
-  const snapshot = () => canon({ defs: Object.fromEntries([...dirtySigns].map((k) => [k, defs.currentDef(k)])), tweaks: tweaks.export(), limits: limitsExport() });
+  const snapshot = () => canon({ defs: Object.fromEntries([...dirtySigns].map((k) => [k, defs.currentDef(k)])), tweaks: tweaks.export(), limits: limitsExport(), orients: orients.exportAll(), thumbs: thumbs.exportAll() });
   const undoStack = []; // { snap, key, hand }: the state before the edit, and where it was made
   const redoStack = [];
   let last = null; // the state after the latest edit
@@ -436,8 +498,29 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     soonId = id;
     if (!soon) soon = requestAnimationFrame(flushBones);
   };
+  // the base-pose mode edits just as fast (a handle being dragged): the working copy and the undo snapshot follow once a frame
+  let orientSoon = 0;
+  let orientSoonId = null;
+  const flushOrients = () => {
+    if (!orientSoon) return;
+    cancelAnimationFrame(orientSoon);
+    orientSoon = 0;
+    orients.persist();
+    saveFrames(); // (a base pose's bone tweaks go with it)
+    if (base?.boneEdit) refreshBone(); // (the bone's numbers, after a limb was put back)
+    commit(orientSoonId);
+    updateStatus();
+  };
+  /** An orient changed: show the sign with it at once; keep the rest for the next frame. */
+  const orientsChangedSoon = (id) => {
+    show(key);
+    freeze(scrub);
+    orientSoonId = id;
+    if (!orientSoon) orientSoon = requestAnimationFrame(flushOrients);
+  };
   const endGesture = () => {
     flushBones();
+    flushOrients();
     lastEdit.id = null;
   };
   function commit(id) {
@@ -473,8 +556,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     for (const k of new Set([...dirtySigns, ...Object.keys(s.defs)])) defs.applyDef(k, s.defs[k] ?? defs.baselineDef(k));
     tweaks.load(s.tweaks);
     limitsLoad(s.limits);
+    orients.loadAll(s.orients);
+    thumbs.loadAll(s.thumbs);
     recheckAll();
     defs.persist();
+    orients.persist();
+    thumbs.persist();
     saveTweaks();
     saveLimits();
     last = entry.snap;
@@ -603,7 +690,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (problem) return void (newNote.textContent = problem);
     const from = newCopy.checked && key && key !== STANDBY ? key : null;
     defs.addSign(name, from ? defs.currentDef(from) : undefined);
-    if (from) tweaks.copy(from, name, items.map((x) => x.name)); // its bone tweaks come along
+    if (from) {
+      tweaks.copy(from, name, items.map((x) => x.name)); // its bone tweaks come along
+      tweaks.copyFrames(from, name); // ... and its keyframes (the path is the same)
+    }
     letters.push(name);
     folded.push([name, fold(name)]);
     makeChip(name);
@@ -626,6 +716,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const next = letters.find((l) => l !== gone && l !== STANDBY);
     pick(next); // away from it first
     tweaks.reset(gone, items.map((x) => x.name));
+    tweaks.dropFrames(gone);
     defs.removeSign(gone);
     letters.splice(letters.indexOf(gone), 1);
     folded.splice(folded.findIndex(([l]) => l === gone), 1);
@@ -662,6 +753,22 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     });
     return { field, read: () => (field.value === '' || !Number.isFinite(+field.value) ? null : clamped()) };
   };
+  /**
+   * A slider for a number field, over the field's own range: dragging it types the value into the field (whose own listeners do the
+   * rest, so a slider and a typed number are the same edit) and typing moves the slider.
+   */
+  const linkSlider = (field, min, max, step, title) => {
+    const slider = input('range', { min, max, step, value: field.value === '' ? 0 : field.value });
+    slider.title = title;
+    slider.addEventListener('input', () => {
+      field.value = round3(+slider.value);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    field.addEventListener('input', () => {
+      if (field.value !== '' && Number.isFinite(+field.value) && document.activeElement !== slider) slider.value = field.value;
+    });
+    return slider;
+  };
   let fieldSeq = 0; // each field's own undo gesture id
   function numRow(parent, label, min, max, step, get, set, unit = '', axis = false) {
     const row = el('label', `fd__num${axis ? ' fd__num--axis' : ''}`);
@@ -673,7 +780,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       set(v);
       changed(id);
     });
-    row.append(el('span', '', label), field, el('span', '', unit));
+    row.append(el('span', '', label), linkSlider(field, min, max, step, label), field, el('span', '', unit));
     parent.appendChild(row);
   }
 
@@ -738,32 +845,51 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       changed();
     });
     colPose.append(own, undo);
+    // the base pose itself (for every sign that uses it) is edited in a mode of its own
+    const baseOpen = base?.active && base.name === (p.dir ?? defaultDir());
+    const baseBtn = el('button', baseOpen ? 'fd__on' : '', baseOpen ? 'Põhiasendi režiim ✓ (sulge)' : `Muuda põhiasendit „${p.dir ?? defaultDir()}“…`);
+    baseBtn.title = 'Muudab põhiasendit ennast, kõigile märkidele, mis seda kasutavad (mitte ainult selle viipe oma muudatusi): käepidemed ekraanil. „Salvesta“ viib muudatuse serverisse (nähtav kõigile)';
+    baseBtn.addEventListener('click', () => {
+      if (baseOpen) base.close();
+      else openBasePose(p.dir ?? defaultDir());
+    });
+    colPose.append(baseBtn);
     vector(colArm, 'Randme asukoht (õlast, käe pikkustes)', 'reach', -1, 1, 0.01);
     vector(colArm, 'Küünarnuki suund', 'pole', -1, 1, 0.05);
     vector(colHand, 'Sõrmede suund', 'finger', -1, 1, 0.05);
     vector(colHand, 'Pöidla suund', 'thumb', -1, 1, 0.05);
     cols.append(colPose, colArm, colHand);
-    blockOrient.append(cols, twistEl);
+    blockOrient.append(cols);
+    // a one-handed sign has no hand tabs: the left hand is added here (the standby pose has its tabs always)
+    if (hand === 'R' && !sign().left && key !== STANDBY) blockOrient.append(addLeftBtn());
+    blockOrient.append(twistEl);
+  }
+
+  /** A button that lets the left hand take part in the sign (a mirror image of the right one) and shows it. */
+  function addLeftBtn() {
+    const add = el('button', '', 'Lisa vasak käsi (parema peegelpilt)');
+    add.addEventListener('click', () => {
+      const s = sign();
+      const { curl, thumb, dir, orient, spread, knuckle } = s;
+      const zero = (a) => Array.isArray(a) && a.every((x) => x === 0);
+      s.left = structuredClone(Object.fromEntries(Object.entries({ curl, thumb, dir, orient, spread, knuckle }).filter(([f, v]) => v !== undefined && !(zero(v) && (f === 'spread' || f === 'knuckle')))));
+      if (key === STANDBY) {
+        // the left hand waits relaxed at the side, not raised like the right
+        s.left.dir = 'relaxed';
+        delete s.left.orient;
+      }
+      hand = 'L'; // (the hand tabs show up now, on the new hand)
+      renderHand();
+      changed();
+    });
+    return add;
   }
 
   // what the hand blocks say when there is nothing to edit: standby, no sign, or the left hand not taking part
   function noPartNote(withAction) {
     if (!key) return [el('div', 'fd__note', 'Vali märk.')];
     if (hand === 'L' && !sign().left) {
-      const add = el('button', '', 'Lisa vasak käsi (parema peegelpilt)');
-      add.addEventListener('click', () => {
-        const s = sign();
-        const { curl, thumb, dir, orient, spread, knuckle } = s;
-        const zero = (a) => Array.isArray(a) && a.every((x) => x === 0);
-        s.left = structuredClone(Object.fromEntries(Object.entries({ curl, thumb, dir, orient, spread, knuckle }).filter(([f, v]) => v !== undefined && !(zero(v) && (f === 'spread' || f === 'knuckle')))));
-        if (key === STANDBY) {
-          // the left hand waits relaxed at the side, not raised like the right
-          s.left.dir = 'relaxed';
-          delete s.left.orient;
-        }
-        renderHand();
-        changed();
-      });
+      const add = addLeftBtn();
       const text = key === STANDBY ? 'Vasak käsi ootab oma nimelises asendis (relaxed), parema käe sõrmeandmetega. Lisa vasaku käe enda andmed, kui tahad neid muuta.' : 'Vasak käsi ei osale selles viipes: ta jääb ooteasendisse.';
       return [el('div', 'fd__note', text), ...(withAction ? [add] : [])];
     }
@@ -835,6 +961,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     thumbSel.addEventListener('change', () => {
       thumbSel.blur();
       p.thumb = thumbSel.value;
+      renderHand(); // (the editor below shows the pose now chosen)
       changed();
     });
     const thumbRow = el('label', 'fd__row');
@@ -856,19 +983,172 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
           p[field][i] = v;
           changed(`${field}${i}:${key}:${hand}`);
         });
-        cell.appendChild(box);
+        cell.append(linkSlider(box, min, max, step, `${name}: ${label}`), box);
         grid.appendChild(cell);
       }
     });
-    blockFingers.append(thumbRow, grid);
+    blockFingers.append(thumbRow, thumbEditor(p.thumb ?? 'rest'), grid);
+  }
+
+  // ---- the thumb poses: the three joints' rotations (Euler XYZ, radians) of the named pose, for every sign that uses it
+  let thumbEditorOpen = false;
+  function thumbChanged(id) {
+    stopPlay(false);
+    thumbs.persist();
+    show(key);
+    freeze(scrub);
+    commit(id);
+    updateStatus();
+  }
+  function thumbEditor(name) {
+    const box = el('details');
+    box.open = thumbEditorOpen;
+    box.addEventListener('toggle', () => (thumbEditorOpen = box.open));
+    box.append(el('summary', 'fd__sub', `Muuda pöidla asendit „${name}“`));
+    const entry = thumbs.get(name);
+    if (!entry.joints) {
+      box.append(el('div', 'fd__note', 'Selle mudeli pöidla asendeid ei saa siin muuta.'));
+      return box;
+    }
+    const JOINTS = ['Tüvi', 'Keskmine', 'Ots'];
+    const grid = el('div', 'fd__fingers');
+    grid.appendChild(el('span'));
+    for (const a of AXES) grid.appendChild(el('div', 'fd__sub', a.toUpperCase()));
+    JOINTS.forEach((joint, j) => {
+      grid.appendChild(el('span', '', joint));
+      AXES.forEach((axis, k) => {
+        const cell = el('label', 'fd__cell');
+        cell.title = `Pöidla liiges ${j + 1} (${joint.toLowerCase()}), pööre ümber ${axis.toUpperCase()} (radiaanid)`;
+        const { field, read } = numberField({ min: -3, max: 3, step: 0.01, value: entry.joints[j]?.[k] ?? 0 });
+        field.addEventListener('input', () => {
+          const v = read();
+          if (v === null) return;
+          const next = thumbs.get(name);
+          next.joints[j][k] = v;
+          thumbs.set(name, next);
+          thumbChanged(`thumb:${name}:${j}${k}`);
+        });
+        cell.append(linkSlider(field, -3, 3, 0.01, cell.title), field);
+        grid.appendChild(cell);
+      });
+    });
+    const users = Object.values(SIGNS).reduce((n, s) => n + (s.thumb === name) + (s.left?.thumb === name), 0);
+    const reset = el('button', '', 'Lähtesta algandmetele');
+    reset.disabled = !thumbs.isChanged(name);
+    reset.addEventListener('click', () => {
+      endGesture();
+      thumbs.reset(name);
+      thumbChanged(`thumb:${name}:reset`);
+      endGesture();
+      renderHand();
+    });
+    box.append(
+      grid,
+      el('div', 'fd__note', `Kehtib kõigile märkidele, mis seda pöidla asendit kasutavad (${users}). „Salvesta“ viib selle serverisse (nähtav kõigile).`),
+      reset,
+    );
+    return box;
+  }
+
+  // ---------------------------------------------------------------- the order of the cards
+  const blocksBox = dock.querySelector('.fd__blocks');
+  const cardOrder = () => [...blocksBox.children].map((c) => c.dataset.role).filter(Boolean);
+  {
+    // the saved order first (a card the list doesn't know stays where it is, after them)
+    const saved = readLS(UI_KEY)?.order;
+    if (Array.isArray(saved)) for (const role of saved.filter((r) => r in BLOCK_TITLES)) blocksBox.appendChild($(role));
+    const rest = Object.keys(BLOCK_TITLES).filter((r) => !saved?.includes(r));
+    for (const role of rest) blocksBox.appendChild($(role));
+  }
+  /** Move `block` along the row with the pointer (the cards before / after it make way); a short press that moves nowhere is a click. */
+  function startMove(block, down) {
+    const x0 = down.clientX;
+    let moving = false;
+    const onMove = (e) => {
+      if (!moving) {
+        if (Math.abs(e.clientX - x0) < 6) return;
+        moving = true;
+        block.classList.add('fd__block--moving');
+        getSelection()?.removeAllRanges();
+      }
+      // the card the pointer is over (not itself): in front of it when the pointer is on its left half, behind it on its right half
+      for (const other of blocksBox.children) {
+        if (other === block) continue;
+        const r = other.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right) continue;
+        const ref = e.clientX < r.left + r.width / 2 ? other : other.nextElementSibling;
+        if (ref !== block && block.nextElementSibling !== ref) blocksBox.insertBefore(block, ref); // (else it is there already)
+        break;
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      block.classList.remove('fd__block--moving');
+      if (moving) saveUi();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }
+
+  // ---------------------------------------------------------------- folding the cards sideways
+  // (the hand blocks are rebuilt now and then and lose their fold button: renderHand puts it back)
+  function ensureFolds() {
+    for (const [role, title] of Object.entries(BLOCK_TITLES)) {
+      const block = $(role);
+      const folded = foldedBlocks.has(role);
+      const flip = () => {
+        if (foldedBlocks.has(role)) foldedBlocks.delete(role);
+        else foldedBlocks.add(role);
+        ensureFolds();
+        saveUi();
+      };
+      block.dataset.title = title;
+      block.classList.toggle('fd__block--folded', folded);
+      // a double click folds a card on its title (the card's first line), and opens a folded one anywhere on its strip
+      if (!block.dataset.foldDbl) {
+        block.dataset.foldDbl = '1';
+        block.addEventListener('dblclick', (e) => {
+          if (e.target.closest('button, input, select, label, output')) return;
+          if (block.classList.contains('fd__block--folded') || e.target.closest('.fd__h')) {
+            getSelection()?.removeAllRanges(); // (the double click selects the word under it)
+            flip();
+          }
+        });
+      }
+      // dragging the card by its title (or anywhere on a folded strip) puts it elsewhere in the row
+      if (!block.dataset.moveInit) {
+        block.dataset.moveInit = '1';
+        block.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0 || e.target.closest('button, input, select, label, output')) return;
+          if (block.classList.contains('fd__block--folded') || e.target.closest('.fd__h')) startMove(block, e);
+        });
+      }
+      block.querySelector(':scope > .fd__h')?.setAttribute('title', 'Lohista, et kaarti vahetada; topeltklõps voldib kaardi kokku');
+      let fold = block.querySelector(':scope > .fd__fold');
+      if (!fold) {
+        fold = el('div', 'fd__fold');
+        const b = el('button');
+        b.addEventListener('click', flip);
+        fold.appendChild(b);
+        block.prepend(fold);
+      }
+      fold.firstChild.textContent = folded ? '▸' : '◂';
+      fold.firstChild.title = folded ? `Näita kaarti „${title}“` : `Voldi kaart „${title}“ kitsaks ribaks`;
+    }
   }
 
   // ---------------------------------------------------------------- the hand blocks and the timeline together
   function renderHand() {
+    base?.refresh();
     tabR.classList.toggle('fd__on', hand === 'R');
     tabL.classList.toggle('fd__on', hand === 'L');
     tabL.disabled = !sign();
     tabR.disabled = !sign();
+    // only a sign the left hand takes part in (and the standby pose) has hand tabs; any other has just the right hand
+    handTabs.hidden = !sign() || !(sign().left || key === STANDBY);
     fillOrient();
     fillFingers();
     buildTimeline();
@@ -883,6 +1163,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       });
       blockOrient.appendChild(remove);
     }
+    ensureFolds();
   }
 
   // ---------------------------------------------------------------- block: a single bone (markers and lines in the scene)
@@ -895,6 +1176,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const mirrorBox = input('checkbox', { checked: true });
   const linesBox = input('checkbox', { checked: true });
   const boneLabel = el('div', 'fd__note');
+  const bodyBtn = el('button', '', 'Keha');
+  const faceBtn = el('button', '', 'Nägu');
+  bodyBtn.title = 'Kogu luustik: käed, sõrmed, keha, nägu (luude markerid ja gizmo)';
+  faceBtn.title = 'Näo vormid (liugurid); kui mudelil vorme pole, näo luud';
   const boneTitle = el('span', '', 'Luu');
   // the gizmo's mode and space, and the tweak's numbers: rotation (degrees) and position offset (millimetres) per axis, or a shape key's weight
   const modeRotBtn = el('button', '', 'Pööra');
@@ -970,6 +1255,57 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   gizmoPanel.addEventListener('keyup', (e) => e.stopPropagation());
   gizmoPanel.addEventListener('change', () => endGesture());
   gizmoPanel.addEventListener('focusout', () => endGesture());
+
+  // ---------------------------------------------------------------- the base-pose mode (basePose.js)
+  // While it is open the bone gizmo and markers are put away, and the collision guards are off (they would push the hand away from the
+  // handles); they come back as they were.
+  let guardsWere = true;
+  base = createBasePose({
+    scene, camera, controls, dom, tweaks, handOf,
+    getKey: () => key,
+    pickSign: (k) => pick(k),
+    refreshHands: () => {
+      if (!key || !isOpen) return;
+      show(key);
+      freeze(scrub);
+    },
+    onEdit: orientsChangedSoon,
+    onEnd: () => endGesture(),
+    onToggle: (on) => {
+      if (on) {
+        guardsWere = guardsBox.checked;
+        guardsBox.checked = false;
+        onGuards(false);
+      } else {
+        guardsBox.checked = guardsWere;
+        onGuards(guardsWere);
+      }
+      markers.visible = isOpen && !on;
+      gizmoPanel.hidden = !isOpen || on;
+      lines.visible = hot.visible = isOpen && !on && linesBox.checked;
+      refreshBone(); // (the bone gizmo goes or comes back)
+      renderHand(); // (the button of the hand's block)
+    },
+    // the arm's bones turned for the base pose (the bone gizmo, markers and fields are back, their tweaks go to the base pose: tweaks.js)
+    onBones: (on, orient, side) => {
+      endGesture();
+      tweaks.setEditOrient(on ? { name: orient, side } : null);
+      selected = -1;
+      markers.visible = isOpen && on;
+      gizmoPanel.hidden = !isOpen || !on;
+      lines.visible = hot.visible = isOpen && on && linesBox.checked;
+      if (on) {
+        groupSel.value = side === 'R' ? 'right' : 'left';
+        fillBones();
+      }
+      refreshBone();
+    },
+  });
+  function openBasePose(name) {
+    if (!key || !isOpen) return;
+    stopPlay(false);
+    base.open(name, name === 'relaxed' ? 'L' : hand); // ('relaxed' is the left hand's waiting pose; the panel has its own hand choice)
+  }
   // rotation limits of the selected bone: per axis a min and a max (blank = free), buttons that take the bone's current angle
   const limitsOnBox = input('checkbox', { checked: true });
   limitsOnBox.title = 'Välja lülitatuna saab luu vabalt poosida (piirid jäävad alles)';
@@ -1014,9 +1350,22 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     pickRow.append(pickLabel, focusBtn);
     const buttons = el('div', 'fd__buttons');
     buttons.append(resetBoneBtn, resetGroupBtn, copyJsonBtn);
+    // two buttons for what is edited most: the body (every bone) and the face (its shape keys, or the face bones where there are none)
+    // the finer groups stay behind a fold
+    const goTo = (id) => {
+      groupSel.value = id;
+      groupSel.dispatchEvent(new Event('change'));
+    };
+    bodyBtn.addEventListener('click', () => goTo('all'));
+    faceBtn.addEventListener('click', () => goTo(tweaks.shapes.length ? 'shapes' : 'face'));
+    const quick = el('div', 'fd__buttons');
+    quick.append(bodyBtn, faceBtn);
+    const finer = el('details');
+    finer.append(el('summary', 'fd__sub', 'Täpsemad rühmad'), row(el('span', '', 'Rühm'), groupSel));
     blockBone.append(
       el('div', 'fd__h', 'Luu peenhäälestus'),
-      row(el('span', '', 'Rühm'), groupSel),
+      quick,
+      finer,
       pickRow,
       row(el('span', '', 'Peegelda vastasküljele'), mirrorBox),
       row(el('span', '', 'Näita luujooni'), linesBox),
@@ -1035,7 +1384,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const groupOptions = [...GROUPS.filter((g) => g.id !== 'shapes' || tweaks.shapes.length), { id: 'hands', label: 'Mõlemad käed' }, { id: 'all', label: 'Kogu luustik' }];
   const inGroup = (e, id = groupSel.value) => (JOINED[id] ? JOINED[id].includes(e.group) : e.group === id);
   for (const g of groupOptions) groupSel.add(new Option(g.label, g.id));
-  groupSel.value = tweaks.shapes.length ? 'shapes' : 'face'; // shape keys are how a shape-key face (Character Creator) is tuned
+  groupSel.value = 'all'; // the body (every bone) is what is tuned first; the face is one button away (its shape keys on a shape-key face, Character Creator)
 
   // markers on the bones of the chosen group
   const markerGeo = new THREE.SphereGeometry(1, 12, 8);
@@ -1177,7 +1526,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   /** The gizmo is shown on the selected bone while the dock is open (a shape key has nothing to turn). */
   const attachGizmo = () => {
     const e = sel();
-    if (isOpen && key && e?.bone) gizmo.attach(proxy);
+    if (isOpen && key && e?.bone && !base?.handles) gizmo.attach(proxy);
     else if (gizmo.object) gizmo.detach();
   };
   /** How far the limits turned the selected bone back at the last frame, degrees per Euler axis (x, y, z). */
@@ -1209,6 +1558,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     rotRow.fields.forEach(({ field }, i) => put(field, val.rot[i]));
     posRow.fields.forEach(({ field }, i) => put(field, val.pos[i]));
     put(weight.field, val.w);
+    bodyBtn.classList.toggle('fd__on', groupSel.value === 'all');
+    faceBtn.classList.toggle('fd__on', groupSel.value === 'shapes' || groupSel.value === 'face');
     modeRotBtn.classList.toggle('fd__on', gizmo.mode === 'rotate');
     modeMoveBtn.classList.toggle('fd__on', gizmo.mode === 'translate');
     spaceBtn.textContent = gizmo.space === 'local' ? 'Luu telgedes' : 'Maailma telgedes';
@@ -1222,11 +1573,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     let note = '';
     if (e && key) {
       const k = editKey();
-      note = k === key ? '' : e.group === 'body' ? ' (kehtib alati)' : ' (ooteasend)';
+      note = k === key ? '' : k.includes('@') ? ` (keyframe ${selPoint + 1})` : e.group === 'body' ? ' (kehtib alati)' : ' (ooteasend)';
     }
     const aimName = e?.bone && gizmo.mode === 'translate' ? tweaks.aimParentOf(e.name) : null;
     gizmoHint.textContent = aimName ? `Liigutamine pöörab luud ${aimName}, et valitud luu jääks külge. Nihke lahtrid nihutavad luud ennast.` : '';
-    gizmoBone.innerHTML = e ? `<b>${e.name}</b>` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
+    gizmoBone.innerHTML = e ? `<b>${e.name}</b>${frameActive() ? ` · keyframe ${selPoint + 1}` : ''}` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
       m.material = i === selected ? pickedMat : idleMat;
@@ -1267,6 +1618,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // (a shape key's weight is the same on both sides)
   const mirrored = (v) => v && ('w' in v ? { w: v.w } : { rot: [v.rot[0], -v.rot[1], -v.rot[2]], pos: [-v.pos[0], v.pos[1], v.pos[2]] });
   const writeBone = (e, value, id) => {
+    holdAtFrame();
     tweaks.set(tweaks.keyOf(e.name, key), e.name, value); // (e is not always the selected bone: the gizmo may turn its parent)
     if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
     bonesChangedSoon(id);
@@ -1411,7 +1763,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     down = e.button === 0 ? { x: e.clientX, y: e.clientY, onGizmo: !!gizmo.axis } : null;
   });
   dom.addEventListener('pointerup', (e) => {
-    if (!isOpen || !down) return;
+    if (!isOpen || !down || base?.handles) return; // (with the base-pose handles up the markers are away)
     const { onGizmo } = down;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     down = null;
@@ -1540,14 +1892,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     changed();
   });
   $('load-file').addEventListener('click', () => {
-    const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState || limitsChanged();
-    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded nii, nagu leht need serverist laadis? Salvestamata muudatused lähevad kaduma.')) return;
+    const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState || limitsChanged() || orients.changedNames().length || thumbs.changedNames().length;
+    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded nii, nagu leht need serverist laadis? Salvestamata muudatused (ka keyframe\'id ja põhiasendite luumuudatused, mis on ainult selles brauseris) lähevad kaduma.')) return;
     try {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(LIMITS_KEY);
+      localStorage.removeItem(FRAMES_KEY);
     } catch {}
     tweaks.load(tweaksFromSigns());
     limitsLoad(limitsFileData);
+    orients.resetAll();
+    thumbs.resetAll();
     for (const k of [...dirtySigns]) defs.resetSign(k);
     recheckAll();
     defs.persist();
@@ -1577,6 +1932,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const drafts = tweakDrafts();
     const limitsState = limitsExport();
     const limitsDirty = limitsChanged();
+    const orientsDirty = orients.changedNames().length > 0; // the base poses and the thumb poses go to the server too (everybody sees them)
+    const thumbsDirty = thumbs.changedNames().length > 0;
     try {
       if (!Object.keys(versions).length) throw new Error('lehe andmed pole serverist (server ei vastanud lehe laadimisel)');
       // one request, saved all or nothing: every sign with the version it was edited from
@@ -1587,7 +1944,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const body = { signs };
       if (GLOBAL in drafts) body.global = { tweaks: drafts[GLOBAL], base: versions['*global'] };
       if (limitsDirty) body.limits = { ...limitsState, base: versions['*limits'] };
-      if (!Object.keys(signs).length && !body.global && !body.limits) {
+      if (orientsDirty) body.orients = { base: versions['*orients'] ?? 0, data: orients.all() };
+      if (thumbsDirty) body.thumbPoses = { base: versions['*thumbPoses'] ?? 0, data: { [handOf('R')?.rigId ?? 'cc']: thumbs.all() } };
+      if (!Object.keys(signs).length && !body.global && !body.limits && !body.orients && !body.thumbPoses) {
         saveBtn.textContent = 'Pole midagi salvestada';
       } else {
         const res = await putChanges(body);
@@ -1605,6 +1964,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
           limitsBase = fingerprint(limitsFileState);
           saveLimits();
         }
+        if (orientsDirty) orients.markSaved(); // (they are the baseline now)
+        if (thumbsDirty) thumbs.markSaved();
         clearHistory(); // the server's data is the baseline now
         saveBtn.textContent = created.length ? 'Salvestatud ✓ – laen uuesti…' : 'Salvestatud ✓';
         // the text box and the sign list read the word signs when the page loads: a new sign shows up there after a reload
@@ -1614,7 +1975,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       console.warn('Could not save', err);
       const conflicts = err.body?.conflicts;
       saveBtn.textContent = conflicts?.length
-        ? `Keegi teine salvestas vahepeal: ${conflicts.map((k) => (k === '*global' ? 'keha' : k === '*limits' ? 'piirid' : k)).join(', ')} – lae leht uuesti: nende märkide töökoopia asendub teise salvestatuga, ülejäänud muudatused säilivad`
+        ? `Keegi teine salvestas vahepeal: ${conflicts.map((k) => (k === '*global' ? 'keha' : k === '*limits' ? 'piirid' : k === '*orients' ? 'põhiasendid' : k === '*thumbPoses' ? 'pöidla asendid' : k)).join(', ')} – lae leht uuesti: nende märkide töökoopia asendub teise salvestatuga, ülejäänud muudatused säilivad`
         : `Ei õnnestunud: ${err.message}`;
       setTimeout(() => (saveBtn.textContent = label), conflicts?.length ? 9000 : 2500);
       updateStatus();
@@ -1637,6 +1998,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let ptInputs = []; // the selected point's number fields
   let timeField = null; // ... its time (the middle points only)
   let autoBtn = null;
+  let frameCopyBtn = null; // "copy from the previous keyframe"
   let ranges = CHANNELS.map((c) => c.min); // half-range of each track; held still while a dot is dragged
   let drag = null;
   let lastDown = null; // the last press on the tracks' background, for the double click
@@ -1661,8 +2023,49 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     ranges = CHANNELS.map((c, i) => Math.max(c.min, 1.15 * Math.max(...m.path.map((pt) => Math.abs(pt[i] ?? 0)))));
   };
 
+  // ---- keyframes (tweaks.js): each point of the right hand's path can hold a whole-body pose
+  // In frame mode every bone, shape and gizmo edit goes to the selected point ("keyframe N"): the whole skeleton, body and face. The
+  // playhead then sits on that point, and a bone no frame says anything about keeps the sign's own tweak. Playing mixes the frames.
+  function frameActive() {
+    return frameMode && isOpen && hand === 'R' && !!key && key !== STANDBY && !!motion() && !base?.boneEdit;
+  }
+  const frameTime = () => {
+    const m = motion();
+    return m ? (pathTimes(m.path, m.times)[selPoint] ?? 0) : 0;
+  };
+  /** Point the tweaks at the selected point's keyframe (or at none); with `moveHead` the playhead goes to the point. */
+  function syncFrame(moveHead = true) {
+    const on = frameActive();
+    tweaks.setEditFrame(on ? key : null, selPoint);
+    if (frameCopyBtn) frameCopyBtn.disabled = selPoint <= 0;
+    if (on && moveHead) {
+      scrub = frameTime();
+      stopPlay(false);
+      freeze(scrub);
+    }
+    refreshBone();
+    drawTimeline();
+  }
+  /** Before an edit in frame mode: the playhead is on the point being edited (what is dragged is that frame's pose, not a mix). */
+  function holdAtFrame() {
+    if (!frameActive()) return;
+    stopPlay(false);
+    const t = frameTime();
+    if (Math.abs(scrub - t) <= 1e-4) return;
+    scrub = t;
+    freeze(scrub);
+    drawTimeline();
+  }
+  /** Path points came or went: the keyframes move with them. */
+  const framesFollow = (fn) => {
+    if (hand !== 'R' || !key) return;
+    fn();
+    saveTweaks();
+  };
+
   function buildTimeline() {
     stopPlay(false);
+    tweaks.setEditFrame(null);
     tlHead.replaceChildren();
     const p = part();
     if (!p) {
@@ -1680,7 +2083,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const on = input('checkbox', { checked: !!m });
     on.addEventListener('change', () => {
       if (on.checked) p.motion = { path: [[0, 0], [0, 0]], duration: 1 };
-      else delete p.motion;
+      else {
+        delete p.motion;
+        framesFollow(() => tweaks.dropFrames(key)); // (no path: no points to hold keyframes)
+      }
       selPoint = 0;
       buildTimeline();
       changed();
@@ -1689,7 +2095,20 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     onRow.append(on, el('span', '', `Käsi liigub (${hand === 'R' ? 'parem' : 'vasak'})`));
     tlHead.appendChild(onRow);
     if (!m) {
-      tlBody.replaceChildren(el('div', 'fd__none', 'Selle viipe käsi ei liigu. Märgi „Käsi liigub“, et lisada liikumise ajajoon.'));
+      // keyframes ride on the points of the path: a path of two points that stay put gives a sign with no hand movement a timeline too
+      if (hand === 'R') {
+        const start = el('button', '', '◆ Keyframe\'i keha');
+        start.title = 'Lisab ajajoone (kaks punkti, käsi jääb paigale) ja lülitab keyframe\'i režiimi sisse: muudad kogu keha, luustikku ja nägu punkti kaupa';
+        start.addEventListener('click', () => {
+          p.motion = { path: [[0, 0], [0, 0]], duration: 1 };
+          selPoint = 0;
+          frameMode = true;
+          buildTimeline();
+          changed();
+        });
+        tlHead.appendChild(start);
+      }
+      tlBody.replaceChildren(el('div', 'fd__none', 'Selle viipe käsi ei liigu. „◆ Keyframe\'i keha“ lisab ajajoone, kus käsi jääb paigale ja muutuda saavad keha ja nägu; „Käsi liigub“ lisab ajajoone käe liikumisega.'));
       return;
     }
     const playBtn = el('button', '', '▶ Mängi');
@@ -1721,12 +2140,42 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     delBtn.disabled = m.path.length <= 2;
     delBtn.addEventListener('click', () => {
       pin(m);
+      framesFollow(() => tweaks.removeFrame(key, selPoint));
       m.path.splice(selPoint, 1);
       m.times.splice(selPoint, 1);
       selPoint = clamp(selPoint, 0, m.path.length - 1);
       buildTimeline();
       changed();
     });
+    // keyframes: edit a whole-body pose for the selected point (see syncFrame)
+    const frameBtn = el('button', frameMode ? 'fd__on' : '', '◆ Keyframe\'i keha');
+    frameBtn.title =
+      'Keyframe\'i režiim: valitud punkti (kf) jaoks muudad kogu keha, luustikku ja nägu olemasolevate vahenditega (gizmo, liugurid, luu ja vormide valik). Muudatus jääb sellele punktile; esitusel liiguvad luud ja näovormid punktide vahel. Kehtib parema käe ajajoonele. Keyframe\'id jäävad ainult sinu brauserisse.';
+    frameBtn.disabled = hand !== 'R';
+    frameBtn.addEventListener('click', () => {
+      frameMode = !frameMode;
+      buildTimeline();
+    });
+    const frameCopy = el('button', '', 'Kopeeri eelmisest');
+    frameCopy.title = 'Valitud keyframe saab eelmise punkti keyframe\'i (kui eelmisel pole midagi, siis vabaneb see ise)';
+    frameCopyBtn = frameCopy;
+    frameCopy.addEventListener('click', () => {
+      const act = `frame-copy:${key}:${selPoint}`;
+      tweaks.copyFrame(key, selPoint - 1, selPoint);
+      bonesChanged(act);
+      refreshBone();
+      drawTimeline();
+    });
+    const frameClear = el('button', '', 'Tühjenda kf');
+    frameClear.title = 'Valitud keyframe ei muuda midagi: keha järgib selles punktis märgi enda seadeid';
+    frameClear.addEventListener('click', () => {
+      const act = `frame-clear:${key}:${selPoint}`;
+      tweaks.clearFrame(key, selPoint);
+      bonesChanged(act);
+      refreshBone();
+      drawTimeline();
+    });
+    frameCopy.hidden = frameClear.hidden = !frameMode || hand !== 'R';
     const pt = el('div', 'fd__pt');
     ptInputs = CHANNELS.map((c, i) => {
       const field = input('number', { step: c.step });
@@ -1769,11 +2218,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     pt.append(timeLabelField, autoBtn);
     pt.prepend(el('span', 'fd__note', `Punkt ${selPoint + 1}/${m.path.length}:`));
     pt.title = 'Esimene punkt on viipe enda asend, kui see on [0, 0]';
-    tlHead.append(playBtn, timeLabel, durLabel, staggerLabel, addBtn, delBtn, pt);
+    tlHead.append(playBtn, timeLabel, durLabel, staggerLabel, addBtn, delBtn, frameBtn, frameCopy, frameClear, pt);
     tlBody.replaceChildren(svg);
     fit();
     fillPointInputs();
     drawTimeline();
+    syncFrame();
   }
 
   function fillPointInputs() {
@@ -1831,6 +2281,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const x = xOf(times[p]);
       const on = p === selPoint;
       s += `<line x1="${x}" x2="${x}" y1="${TL.ruler}" y2="${TL.ruler + TL.row * CHANNELS.length}" stroke="${on ? '#ffb347' : 'rgba(255,255,255,0.14)'}" pointer-events="none"/>`;
+      // a keyframe (a whole-body pose) on the point: a diamond on the ruler; in frame mode the selected point has an outline even without one
+      const held = hand === 'R' && key && tweaks.frameHas(key, p);
+      if (held || (on && frameActive())) s += `<path d="M${x},3 l5,5 l-5,5 l-5,-5 z" fill="${held ? '#ffb347' : 'none'}" stroke="#ffb347" stroke-width="1.5" pointer-events="none"><title>keyframe ${p + 1}</title></path>`;
       CHANNELS.forEach((c, i) => {
         const y = yMid(i) - (clamp(pt[i] ?? 0, -ranges[i], ranges[i]) / ranges[i]) * half;
         s += `<circle data-p="${p}" data-c="${i}" cx="${x}" cy="${y}" r="${on ? 5 : 4}" fill="${on ? '#ffb347' : c.color}" stroke="#16161a" stroke-width="1.5"><title>${c.id} = ${round(pt[i] ?? 0, c.step)}${c.unit ?? ''} (punkt ${p + 1})</title></circle>`;
@@ -1865,6 +2318,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       if (newSel) {
         tlHead.querySelector('.fd__pt > span').textContent = `Punkt ${p + 1}/${m.path.length}:`;
         fillPointInputs();
+        if (frameActive()) syncFrame(); // the keyframe of this point is edited now, the playhead goes to it
       }
       drawTimeline();
     } else {
@@ -1923,6 +2377,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     trim(point);
     m.path.splice(insertAt, 0, point);
     m.times.splice(insertAt, 0, Math.round(r * 10000) / 10000);
+    framesFollow(() => tweaks.insertFrame(key, insertAt)); // (the new point has the pose the path had there)
     selPoint = insertAt;
     buildTimeline();
     changed();
@@ -1993,7 +2448,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let tlCollapsed = !!readLS(UI_KEY)?.tlCollapsed;
   let blocksCollapsed = !!readLS(UI_KEY)?.blocksCollapsed; // with the blocks hidden the dock is only as tall as its bar and timeline
   const shown = () => height - (tlCollapsed ? TL_TRACKS_H : 0); // the dock's height on screen
-  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed, gizmoMode: gizmo.mode, gizmoSpace: gizmo.space });
+  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed, folded: [...foldedBlocks], order: cardOrder(), gizmoMode: gizmo.mode, gizmoSpace: gizmo.space });
   let height = clamp(readLS(UI_KEY)?.height ?? Math.min(500, Math.round(window.innerHeight * 0.58)), MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
   const applyHeight = () => {
     height = clamp(height, MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
@@ -2076,7 +2531,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     drawTimeline();
   }
   function close() {
+    base.close();
     stopPlay(false);
+    tweaks.setEditFrame(null); // (the keyframe being edited is let go with the dock; syncFrame takes it up again)
     isOpen = false;
     dock.hidden = true;
     launch.hidden = false;
@@ -2113,6 +2570,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     /** Keep markers and lines on their bones (markers at a constant on-screen size); call once per frame after everything is posed. */
     update() {
       if (!isOpen) return;
+      base.update();
       const text = info();
       if (twistEl.textContent !== text) {
         twistEl.textContent = text;

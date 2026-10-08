@@ -26,7 +26,10 @@ const remote = await fetchData();
 export const fingerspelling = remote?.fingerspelling ?? fingerspellingFile;
 export const words = remote?.words ?? wordsFile;
 export const limits = remote?.limits ?? limitsFile;
-/** Save counters of the signs ("*global", "*limits" for the rest); the editor keeps it up to date. Empty when the data is the bundled copy. */
+/** The hand orients and the thumb poses the editors saved ({ name: entry }, { rig: { name: pose } }): what shared.json holds is replaced by them (hands.js). */
+export const orients = remote?.orients ?? {};
+export const thumbPoses = remote?.thumbPoses ?? {};
+/** Save counters of the signs ("*global", "*limits", "*orients", "*thumbPoses" for the rest); the editor keeps it up to date. Empty when the data is the bundled copy. */
 export const versions = remote?.versions ?? {};
 /** Whether the data came from the server (only then can edits be saved). */
 export const fromServer = !!remote;
