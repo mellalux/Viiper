@@ -1,6 +1,6 @@
 import { fingerspelling, words } from '../data/store.js';
 import { SIGNS, WORD_FORMS } from './hands.js';
-import { SIGN_FIELDS, SIGN_NAME } from './signFormat.js';
+import { SIGN_FIELDS, SIGN_NAME, isLetterName } from './signFormat.js';
 import { canon, fingerprint } from '../util.js';
 
 // The definition of a sign (what the fine-tuning window changes) as opposed to its bone tweaks (tweaks.js):
@@ -18,20 +18,21 @@ const pick = (sign) => Object.fromEntries(SIGN_FIELDS.filter((f) => sign[f] !== 
 // the signs as the files hold them (copied now: SIGNS shares its nested objects with the imported JSON, and the editor edits those)
 const baseline = new Map(Object.entries({ ...fingerspelling.signs, ...words.signs }).map(([k, s]) => [k, pick(s)]));
 
-// A new sign is a word sign (it goes into words.json). Its name is what is typed to get it: upper case (the rule is in signFormat.js).
+// A new sign is a letter (sõrmend: a one-letter name, it goes into the fingerspelling) or a word sign (viip: 2-40 characters, it goes into
+// words.json). Its name is what is typed to get it: upper case (the rule is in signFormat.js).
 export const normalizeName = (text) => text.trim().replace(/\s+/g, ' ').toLocaleUpperCase('et');
 /** Why a name can't be used for a new sign, or null when it can. */
 export function checkName(name) {
-  if (!SIGN_NAME.test(name)) return 'Nimi: 2–40 tähte, numbrit, tühikut või sidekriipsu.';
+  if (!SIGN_NAME.test(name) && !isLetterName(name)) return 'Nimi: üks täht (sõrmend) või 2–40 tähte, numbrit, tühikut või sidekriipsu (viip).';
   if (Object.hasOwn(SIGNS, name) || Object.hasOwn(WORD_FORMS, name)) return 'Selline märk (või selle kirjapilt) on juba olemas.';
   return null;
 }
 /** A sign that is not in the files yet (added in the editor and not saved). */
 export const isNew = (key) => !baseline.has(key);
-/** Add a word sign; `def` is its definition (a flat hand, thumb at rest, pointing up when left out). */
+/** Add a sign; `def` is its definition (a flat hand, thumb at rest, pointing up when left out). A letter is not a typed word form. */
 export function addSign(key, def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' }) {
   SIGNS[key] = { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], ...pick(def) };
-  WORD_FORMS[key] = key;
+  if (!isLetterName(key)) WORD_FORMS[key] = key;
 }
 /** Take a sign that is not in the files yet away again. */
 export function removeSign(key) {

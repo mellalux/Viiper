@@ -3,6 +3,9 @@ import { HttpError } from '../auth/users.js';
 // The sign format, as the client's editor writes it. Keep in step with client/src/signing/signFormat.js (SIGN_FIELDS, SIGN_NAME).
 export const SIGN_FIELDS = ['curl', 'thumb', 'spread', 'knuckle', 'dir', 'orient', 'motion', 'left'] as const;
 export const SIGN_NAME = /^[\p{L}\p{N}][\p{L}\p{N} -]{1,39}$/u;
+/** A letter (sõrmend: one upper-case letter or digit, it goes into the fingerspelling) as against a word sign (viip: 2-40 characters). */
+export const LETTER_NAME = /^[\p{L}\p{N}]$/u;
+export const isLetterName = (name: string) => LETTER_NAME.test(name);
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 export type Obj = { [k: string]: Json };
@@ -19,7 +22,7 @@ export const canon = (v: unknown): string =>
   JSON.stringify(v, (_k, x) => (isObject(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
 
 export function checkSignName(name: unknown): string {
-  if (typeof name !== 'string' || !SIGN_NAME.test(name) || name !== name.toLocaleUpperCase('et')) return bad(`Sobimatu märgi nimi "${String(name)}".`);
+  if (typeof name !== 'string' || !(SIGN_NAME.test(name) || LETTER_NAME.test(name)) || name !== name.toLocaleUpperCase('et')) return bad(`Sobimatu märgi nimi "${String(name)}".`);
   return name;
 }
 
@@ -32,7 +35,7 @@ export function checkDef(def: unknown, isLeft = false): asserts def is Obj {
       k === 'curl' || k === 'spread' || k === 'knuckle' ? nums(v, 4)
       : k === 'thumb' || k === 'dir' ? typeof v === 'string'
       : k === 'orient' ? isObject(v) && Object.entries(v).every(([f, x]) => (f === 'maxBend' ? num(x) : ['finger', 'thumb', 'reach', 'pole'].includes(f) && nums(x, 3)))
-      : k === 'motion' ? isObject(v) && Array.isArray(v.path) && v.path.length >= 2 && v.path.every((pt) => nums(pt) && pt.length >= 2 && pt.length <= 8) && num(v.duration) && v.duration > 0
+      : k === 'motion' ? isObject(v) && Array.isArray(v.path) && v.path.length >= 2 && v.path.every((pt) => nums(pt) && pt.length >= 2 && pt.length <= 8) && num(v.duration) && v.duration > 0 && (v.smooth === undefined || typeof v.smooth === 'boolean')
       : isObject(v) && (checkDef(v, true), true);
     if (!ok) return bad(`Vigane väärtus väljal "${k}".`);
   }

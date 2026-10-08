@@ -12,6 +12,7 @@ import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTime
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
 import * as orients from '../signing/orients.js';
+import { isLetterName } from '../signing/signFormat.js';
 import { createWorkingTable } from '../signing/workingTable.js';
 import { createBasePose } from './basePose.js';
 import { orientLabel, thumbLabel } from './labels.js';
@@ -82,6 +83,7 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd-gizmo[hidden], .fd-gizmo [hidden] { display: none !important; }
 .fd-gizmo__body { display: grid; gap: 8px; padding: 10px 12px 12px; }
 .fd-gizmo button, .fd-gizmo input[type=number] { font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.fd-gizmo select { font: inherit; color: inherit; min-width: 0; padding: 3px 6px; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
 .fd-gizmo button { padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .fd-gizmo button:hover:not(:disabled) { background: #38383f; }
 .fd-gizmo button.fd__on { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
@@ -228,7 +230,14 @@ const trim = (pt) => {
  * @param onLayout     (px) => height of the dock when open, 0 when closed: the scene moves up to stay above it
  */
 export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimits, fingerLimits = null, letters, show, play, freeze, select, onStandby, onGuards = () => {}, onColliders = () => {}, collidersOn = false, handOf, currentSign = () => null, info = () => '', onLayout = () => {} }) {
-  letters = [...letters]; // signs added in the editor are appended
+  // The list: the standby pose first, then the letters (sõrmendid), then the words (viiped), each in alphabetical order (Estonian: Š after S,
+  // Z Ž before T, Õ Ä Ö Ü after W). A sign added in the editor goes to its place in it.
+  const collator = new Intl.Collator('et');
+  const sortSigns = (list) => {
+    const rank = (l) => (l === STANDBY ? 0 : [...l].length === 1 ? 1 : 2);
+    return [...list].sort((a, b) => rank(a) - rank(b) || collator.compare(a, b));
+  };
+  letters = sortSigns(letters);
   const readLS = (k) => {
     try {
       return JSON.parse(localStorage.getItem(k));
@@ -415,7 +424,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let playing = null; // { t0, timer } while the motion plays
   let playR = 0; // the playhead while playing
   let base = null; // the base-pose mode (basePose.js), made below
-  const BLOCK_TITLES = { 'b-sign': 'Märk', 'b-orient': 'Käe asend', 'b-fingers': 'Sõrmed', 'b-bone': 'Luu peenhäälestus', 'b-copy': 'Kopeeri teisest märgist' };
+  const BLOCK_TITLES = { 'b-sign': 'Sõrmendid ja viiped', 'b-orient': 'Käe asend', 'b-fingers': 'Sõrmed', 'b-bone': 'Luu peenhäälestus', 'b-copy': 'Kopeeri teisest märgist' };
   const foldedBlocks = new Set((readLS(UI_KEY)?.folded ?? []).filter((r) => r in BLOCK_TITLES)); // the cards folded into a strip
   let frameMode = false; // keyframes: the bone, shape and gizmo edits go to the selected point of the path (see syncFrame)
 
@@ -679,20 +688,21 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   collidersRow.append(el('span', '', 'Näita kolliderid'), collidersBox);
   collidersBox.addEventListener('change', () => onColliders(collidersBox.checked));
   // a new word sign: its name is what gets typed to show it; it starts as a flat hand, or as a copy of the sign being edited
-  const newName = input('text', { placeholder: 'Uue märgi nimi (nt KASS)…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
+  const newName = input('text', { placeholder: 'Üks täht (sõrmend, nt Å) või viipe nimi (nt KASS)…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
   const newCopy = input('checkbox', { checked: false });
-  const newBtn = el('button', '', '＋ Lisa märk');
-  const delBtn = el('button', '', 'Kustuta see uus märk');
+  const newBtn = el('button', '', '＋ Lisa sõrmend või viip');
+  const delBtn = el('button', '', 'Kustuta see uus');
   delBtn.title = 'Eemaldab märgi, mida pole veel faili salvestatud';
   delBtn.hidden = true;
   const newNote = el('div', 'fd__note');
   const newCopyRow = el('label', 'fd__row');
   newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
-  blockSign.append(el('div', 'fd__h', 'Märk'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus märk'), newName, newCopyRow, newBtn, delBtn, newNote);
+  blockSign.append(el('div', 'fd__h', 'Sõrmendid ja viiped'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus sõrmend või viip'), newName, newCopyRow, newBtn, delBtn, newNote);
 
   function createSign() {
     const name = defs.normalizeName(newName.value);
     const problem = defs.checkName(name);
+    newNote.classList.toggle('fd__warn', !!problem); // (a refused name is shown in orange, it was easy to miss)
     if (problem) return void (newNote.textContent = problem);
     const from = newCopy.checked && key && key !== STANDBY ? key : null;
     defs.addSign(name, from ? defs.currentDef(from) : undefined);
@@ -700,10 +710,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       tweaks.copy(from, name, items.map((x) => x.name)); // its bone tweaks come along
       tweaks.copyFrames(from, name); // ... and its keyframes (the path is the same)
     }
-    letters.push(name);
-    folded.push([name, fold(name)]);
+    letters.splice(0, letters.length, ...sortSigns([...letters, name])); // (to its place in the list)
+    folded.splice(0, folded.length, ...letters.map((l) => [l, fold(letterLabel(l))]));
     makeChip(name);
-    copyFrom.add(new Option(name, name));
+    for (const l of letters) chipBox.insertBefore(chips.get(l), noMatch);
+    const copyWas = copyFrom.value;
+    copyFrom.replaceChildren(...letters.map((l) => new Option(letterLabel(l), l)));
+    copyFrom.value = copyWas;
     newName.value = '';
     search.value = '';
     saveTweaks();
@@ -713,7 +726,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     recheckAll();
     clearHistory(); // the older steps know nothing of this sign
     updateStatus();
-    newNote.textContent = `Märk ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta lisab selle serverisse (nähtav kõigile).`;
+    newNote.textContent = `${isLetterName(name) ? 'Sõrmend' : 'Viip'} ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta lisab selle serverisse (nähtav kõigile).`;
   }
   function deleteSign() {
     const gone = key;
@@ -735,7 +748,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     filterChips();
     clearHistory();
     updateStatus();
-    newNote.textContent = `Märk ${gone} kustutatud.`;
+    newNote.textContent = `${isLetterName(gone) ? 'Sõrmend' : 'Viip'} ${gone} kustutatud.`;
   }
   newBtn.addEventListener('click', createSign);
   delBtn.addEventListener('click', deleteSign);
@@ -1250,9 +1263,24 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   gizmoPanel.hidden = true;
   const gizmoBone = el('div', 'fd__note');
   const gizmoHint = el('div', 'fd__note');
+  // for a skin helper bone: a button to the joint's own bone (the elbow's helper -> the forearm, an upper arm helper -> the upper arm)
+  const helperBtn = el('button', '', 'Vali liigese enda luu');
+  helperBtn.hidden = true;
+  helperBtn.addEventListener('click', () => {
+    const e = sel();
+    const side = /_([LR])_/.exec(e?.name ?? '')?.[1];
+    const target = `CC_Base_${side}_${/Upperarm/i.test(e?.name) ? 'Upperarm' : 'Forearm'}`;
+    const i = bones.findIndex((b) => b.name === target);
+    if (i < 0) return;
+    if (!inGroup(bones[i])) {
+      groupSel.value = 'all';
+      fillBones();
+    }
+    selectBone(i);
+  });
   gizmoPanel.innerHTML = '<div class="panel__bar"><span class="panel__title">Luu gizmo</span><span class="panel__grip">⋮⋮</span></div>';
   const gizmoBody = el('div', 'fd-gizmo__body');
-  gizmoBody.append(gizmoBone, gizmoRow, gizmoHint, axisHead, rotRow.row, rotSliders, posRow.row, posSliders, weightRow);
+  gizmoBody.append(gizmoBone, gizmoRow, gizmoHint, helperBtn, axisHead, rotRow.row, rotSliders, posRow.row, posSliders, weightRow);
   gizmoPanel.appendChild(gizmoBody);
   document.body.appendChild(gizmoPanel);
   makeDraggable(gizmoPanel, gizmoPanel.querySelector('.panel__bar'), 'viiper.gizmoPanel', () => [Math.max(0, window.innerWidth - 346), 58]); // below the account button
@@ -1340,6 +1368,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const resetBoneBtn = el('button', '', 'Luu nulli');
   const resetGroupBtn = el('button', '', 'Rühma nulli');
   const copyJsonBtn = el('button', '', 'Kopeeri JSON');
+  // "to the GLB": the bone (or all bones of the group) in the pose it has in the model's file, whatever the hand's IK or the tweaks make of it;
+  // "nulli" above only takes the tweak away, which leaves an arm in the pose the hand code gives it
+  const restBoneBtn = el('button', '', 'Luu GLB-asendisse');
+  const restGroupBtn = el('button', '', 'Rühm GLB-asendisse');
+  restBoneBtn.title = 'Valitud luu (liiges) mudeli GLB-faili puhkeasendisse, sõltumata käe IK-st ja märgi seadetest. „Luu nulli“ võtab ainult muudatuse ära.';
+  restGroupBtn.title = 'Kõik valitud rühma luud ja vormid mudeli GLB-faili puhkeasendisse (vormid 0)';
   {
     const row = (...kids) => {
       const r = el('label', 'fd__row');
@@ -1356,6 +1390,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     pickRow.append(pickLabel, focusBtn);
     const buttons = el('div', 'fd__buttons');
     buttons.append(resetBoneBtn, resetGroupBtn, copyJsonBtn);
+    const restButtons = el('div', 'fd__buttons');
+    restButtons.append(restBoneBtn, restGroupBtn);
     // two buttons for what is edited most: the body (every bone) and the face (its shape keys, or the face bones where there are none)
     // the finer groups stay behind a fold
     const goTo = (id) => {
@@ -1377,6 +1413,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       row(el('span', '', 'Näita luujooni'), linesBox),
       boneLabel,
       buttons,
+      restButtons,
       el('div', 'fd__sub', 'Pöörde piirid – kõigile märkidele (° puhkeasendist)'),
       row(el('span', '', 'Piirid kehtivad'), limitsOnBox),
       ...limitRows.map((r) => r.row),
@@ -1443,6 +1480,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // The arm's twist helper bones (CC_Base_R_UpperarmTwist01 ...) only twist the skin between the joints: they turn about their own
   // long axis (Y); any other turn just crumples the skin and moves nothing, so the limits editor locks X and Z for them.
   const isTwist = (e) => !!e && !e.shape && /Twist\d*$/i.test(e.name);
+  // The skin's helper bones (the arm's twist bones, CC_Base_R_ElbowShareBone ...): they only shape the skin at one spot, they are not the joint:
+  // turning the elbow's helper moves the tip of the elbow, not the hand. They get no marker in the scene (the joint's own bone is
+  // in the same place and easy to miss for them) and are picked from the list.
+  const isHelper = (e) => !!e && !e.shape && /(Twist|Share)(Bone)?\d*$/i.test(e.name);
   const locked = (e, axisIndex) => isTwist(e) && axisIndex !== 1;
   let selected = -1;
   const sel = () => (selected >= 0 ? items[selected] : null);
@@ -1583,7 +1624,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     modeRotBtn.disabled = modeMoveBtn.disabled = spaceBtn.disabled = !usable || !e.bone;
     attachGizmo();
     refreshLimits();
-    resetBoneBtn.disabled = !e || !key;
+    resetBoneBtn.disabled = restBoneBtn.disabled = !e || !key;
+    restGroupBtn.disabled = !key;
     mirrorBox.disabled = !e?.mirrorName;
     boneSel.value = e ? String(selected) : '';
     let note = '';
@@ -1592,12 +1634,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       note = k === key ? '' : k.includes('@') ? ` (keyframe ${selPoint + 1})` : e.group === 'body' ? ' (kehtib alati)' : ' (ooteasend)';
     }
     const aimName = e?.bone && gizmo.mode === 'translate' ? tweaks.aimParentOf(e.name) : null;
-    gizmoHint.textContent = aimName ? `Liigutamine pöörab luud ${aimName}, et valitud luu jääks külge. Nihke lahtrid nihutavad luud ennast.` : '';
+    const helper = isHelper(e);
+    helperBtn.hidden = !helper;
+    gizmoHint.textContent = helper
+      ? 'Naha abiluu: selle pööramine kujundab ainult nahka selles kohas (nt küünarnuki otsa), see ei pööra kätt ega küünarvart. Käe suuna muutmiseks pööra liigese enda luud (Upperarm / Forearm). Abiluu kehtib kõigile märkidele ja peegeldub teisele käele, kui „Peegelda vastasküljele“ on sees.'
+      : aimName ? `Liigutamine pöörab luud ${aimName}, et valitud luu jääks külge. Nihke lahtrid nihutavad luud ennast.` : '';
     gizmoBone.innerHTML = e ? `<b>${e.name}</b>${frameActive() ? ` · keyframe ${selPoint + 1}` : ''}` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
     boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
       m.material = i === selected ? pickedMat : idleMat;
-      m.visible = inGroup(bones[i]) && !isTwist(bones[i]); // (the twist helper bones are picked from the list: a marker in the arm is easily hit by mistake)
+      m.visible = inGroup(bones[i]) && !isHelper(bones[i]); // (the skin's helper bones are picked from the list: their marker sits at the joint and is easily hit by mistake)
     });
   };
   const selectBone = (i) => {
@@ -1758,6 +1804,19 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (groupSel.value === 'all' && !confirm('Nullin kogu luustiku seaded selle märgi jaoks (ja keha seaded, mis kehtivad alati)? Ctrl+Z võtab tagasi.')) return;
     for (const e of items) if (inGroup(e)) tweaks.set(tweaks.keyOf(e.name, key), e.name, null);
     bonesChanged();
+    refreshBone();
+  });
+  restBoneBtn.addEventListener('click', () => {
+    const e = sel();
+    if (!e || !key) return;
+    writeBone(e, tweaks.restTweak(e.name), `rest:${key}:${e.name}`);
+    refreshBone();
+  });
+  restGroupBtn.addEventListener('click', () => {
+    if (!key) return;
+    if (groupSel.value === 'all' && !confirm('Panen kogu luustiku mudeli GLB-faili puhkeasendisse (käed lähevad alla, ka keha seaded)? Ctrl+Z võtab tagasi.')) return;
+    const id = `rest-group:${key}:${groupSel.value}`; // (one undo step)
+    for (const e of items) if (inGroup(e)) writeBone(e, tweaks.restTweak(e.name), id);
     refreshBone();
   });
   copyJsonBtn.addEventListener('click', async () => {
@@ -2127,6 +2186,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
         });
         tlHead.appendChild(start);
       }
+      const ring = el('button', '', '◯ Ring…');
+      ring.title = 'Käsi liigub ringis: raadius, tasapind, pöörete ja punktide arv';
+      ring.addEventListener('click', openRing);
+      tlHead.appendChild(ring);
       tlBody.replaceChildren(el('div', 'fd__none', 'Selle viipe käsi ei liigu. „◆ Keyframe\'i keha“ lisab ajajoone, kus käsi jääb paigale ja muutuda saavad keha ja nägu; „Käsi liigub“ lisab ajajoone käe liikumisega.'));
       return;
     }
@@ -2151,6 +2214,20 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     });
     const staggerLabel = el('label');
     staggerLabel.append(el('span', '', 'Hajutus'), stagger);
+    // smooth: one curve through the points, no slowing down at each of them (a circle drawn from few points is round, not a polygon)
+    const smoothBox = input('checkbox', { checked: !!m.smooth });
+    smoothBox.addEventListener('change', () => {
+      if (smoothBox.checked) m.smooth = true;
+      else delete m.smooth;
+      changed(`smooth:${key}:${hand}`);
+      drawTimeline();
+    });
+    const smoothLabel = el('label');
+    smoothLabel.title = 'Sile liikumine: käsi liigub ühe sileda kõverana läbi punktide ega aeglusta iga punkti juures (ring vähestest punktidest on ümar, mitte hulknurk). Ilma selleta aeglustub käsi igas punktis. Kehtib ka keyframe\'ide vahel.';
+    smoothLabel.append(smoothBox, el('span', '', 'Sile'));
+    const ringBtn = el('button', '', '◯ Ring…');
+    ringBtn.title = 'Käe liikumistee ringiks: raadius, tasapind, pöörete ja punktide arv; asendab praegused punktid';
+    ringBtn.addEventListener('click', openRing);
     const addBtn = el('button', '', '+ Punkt');
     addBtn.title = 'Lisa punkt mänguoleku kohale (topeltklõps rajal teeb sama)';
     addBtn.addEventListener('click', () => addPointAt(scrub));
@@ -2237,7 +2314,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     pt.append(timeLabelField, autoBtn);
     pt.prepend(el('span', 'fd__note', `Punkt ${selPoint + 1}/${m.path.length}:`));
     pt.title = 'Esimene punkt on viipe enda asend, kui see on [0, 0]';
-    tlHead.append(playBtn, timeLabel, durLabel, staggerLabel, addBtn, delBtn, frameBtn, frameCopy, frameClear, pt);
+    tlHead.append(playBtn, timeLabel, durLabel, staggerLabel, smoothLabel, ringBtn, addBtn, delBtn, frameBtn, frameCopy, frameClear, pt);
     tlBody.replaceChildren(svg);
     fit();
     fillPointInputs();
@@ -2273,7 +2350,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const tmp = new Array(CHANNELS.length).fill(0);
     let s = '';
     // tracks: background, zero line, label with the value under the playhead
-    const here = tracePoint(m.path, r, [...tmp], m.times);
+    const here = tracePoint(m.path, r, [...tmp], m.times, m.smooth);
     CHANNELS.forEach((c, i) => {
       const top = TL.ruler + i * TL.row;
       s += `<rect x="${TL.gutter}" y="${top}" width="${plotW}" height="${TL.row}" fill="${i % 2 ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.06)'}"/>`;
@@ -2290,7 +2367,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     }
     // the curves
     const n = clamp(Math.round(plotW / 3), 24, 240);
-    const samples = Array.from({ length: n + 1 }, (_, k) => tracePoint(m.path, k / n, [...tmp], m.times));
+    const samples = Array.from({ length: n + 1 }, (_, k) => tracePoint(m.path, k / n, [...tmp], m.times, m.smooth));
     CHANNELS.forEach((c, i) => {
       const pts = samples.map((v, k) => `${xOf(k / n).toFixed(1)},${(yMid(i) - (v[i] / ranges[i]) * half).toFixed(1)}`).join(' ');
       s += `<polyline points="${pts}" fill="none" stroke="${c.color}" stroke-width="1.5" opacity="0.9" pointer-events="none"/>`;
@@ -2316,7 +2393,27 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   }
 
   const fractionAt = (e) => clamp((e.clientX - svg.getBoundingClientRect().left - TL.gutter) / plotW, 0, 1);
+  /** Select point `p` of the path (its numbers show, and in frame mode its keyframe is the one being edited and the playhead goes to it). */
+  function selectPoint(p) {
+    const m = motion();
+    if (!m || p === selPoint) return;
+    selPoint = p;
+    const label = tlHead.querySelector('.fd__pt > span');
+    if (label) label.textContent = `Punkt ${p + 1}/${m.path.length}:`;
+    fillPointInputs();
+    if (frameActive()) syncFrame();
+  }
   const setScrub = (r) => {
+    // In frame mode a playhead put on a point (its keyframe) selects that point: what is edited is what is shown, never another keyframe.
+    const m = motion();
+    if (m && frameActive()) {
+      const times = pathTimes(m.path, m.times);
+      const near = times.findIndex((t) => Math.abs(t - r) <= 0.015);
+      if (near >= 0) {
+        r = times[near];
+        if (near !== selPoint) return selectPoint(near);
+      }
+    }
     scrub = r;
     stopPlay(false);
     freeze(scrub);
@@ -2383,13 +2480,113 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
 
+  // ---- a ring: the path of the hand set to a circle, from a small form (a panel of its own)
+  let ringPanel = null;
+  const RING_PLANES = { xy: [0, 1], xz: [0, 2], yz: [1, 2] };
+  /** The hand's path becomes a circle (or several turns) in a plane; `o` = { radius, plane, turns, points, clockwise, centred, duration, smooth }. */
+  function makeRing(o) {
+    const p = part();
+    if (!p || !key || key === STANDBY) return;
+    if (hand === 'R' && tweaks.frameSigns().includes(key) && !confirm('Ring asendab tee punktid. Selle viipe keyframe\'id kustutatakse (need on seotud punktidega). Jätkan?')) return;
+    const [a, b] = RING_PLANES[o.plane] ?? RING_PLANES.xy;
+    const n = clamp(Math.round(o.points), 4, 64); // points per turn
+    const total = Math.max(1, Math.round(o.turns * n));
+    const path = [];
+    for (let k = 0; k <= total; k++) {
+      const angle = ((o.clockwise ? -1 : 1) * 2 * Math.PI * k) / n;
+      // (the ring starts at the hand's own place; or the hand is the middle of it: it then starts a radius below / behind that)
+      const u = o.radius * Math.sin(angle);
+      const v = o.centred ? -o.radius * Math.cos(angle) : o.radius * (1 - Math.cos(angle));
+      const pt = [0, 0, 0];
+      pt[a] = round3(u);
+      pt[b] = round3(v);
+      trim(pt);
+      path.push(pt);
+    }
+    p.motion = { ...(p.motion ?? {}), path, duration: clamp(o.duration, 0.2, 10) };
+    delete p.motion.times; // (the segments of a ring are all as long: equal shares of the time)
+    if (o.smooth) p.motion.smooth = true;
+    else delete p.motion.smooth;
+    framesFollow(() => tweaks.dropFrames(key));
+    selPoint = 0;
+    buildTimeline();
+    changed();
+  }
+  function openRing() {
+    if (!ringPanel) {
+      const box = el('div', 'panel fd-gizmo fd-ring');
+      box.innerHTML = '<div class="panel__bar"><span class="panel__title">Ring</span><span class="panel__grip">⋮⋮</span></div>';
+      const body = el('div', 'fd-gizmo__body');
+      const f = {}; // the form's fields
+      const row = (label, control, title) => {
+        const r = el('label', 'fd__row');
+        r.title = title ?? '';
+        r.append(el('span', '', label), control);
+        return r;
+      };
+      const num = (min, max, step, value) => input('number', { min, max, step, value });
+      const select = (options, value) => {
+        const s = document.createElement('select');
+        for (const [v, label] of options) s.add(new Option(label, v));
+        s.value = value;
+        return s;
+      };
+      f.radius = num(0.01, 1, 0.01, 0.1);
+      f.plane = select([['xy', 'x / y (ees, püsti)'], ['xz', 'x / z (laual, vaadatuna ülalt)'], ['yz', 'y / z (küljelt)']], 'xy');
+      f.turns = num(0.25, 6, 0.25, 1);
+      f.points = num(4, 64, 1, 12);
+      f.clockwise = select([['0', 'Vastupäeva (vaataja poolt)'], ['1', 'Päripäeva (vaataja poolt)']], '0');
+      f.centred = select([['0', 'Algab käe asendist'], ['1', 'Käe asend on ringi keskel']], '0');
+      f.duration = num(0.2, 10, 0.1, 1.5);
+      f.smooth = input('checkbox', { checked: true });
+      f.smooth.title = 'Sile: käsi liigub ühe sileda kõverana läbi punktide, nii on ring ümar';
+      const make = el('button', 'fd__on', 'Tee ring');
+      make.addEventListener('click', () =>
+        makeRing({
+          radius: clamp(+f.radius.value || 0.1, 0.01, 1),
+          plane: f.plane.value,
+          turns: clamp(+f.turns.value || 1, 0.25, 6),
+          points: +f.points.value || 12,
+          clockwise: f.clockwise.value === '1',
+          centred: f.centred.value === '1',
+          duration: +f.duration.value || 1.5,
+          smooth: f.smooth.checked,
+        }),
+      );
+      const close = el('button', '', 'Sulge');
+      close.addEventListener('click', () => (box.hidden = true));
+      const buttons = el('div', 'fd__buttons');
+      buttons.append(make, close);
+      body.append(
+        row('Raadius (käe pikkust)', f.radius, 'Ringi raadius käe pikkustes (nagu punktide x / y / z)'),
+        row('Tasapind', f.plane, 'Mis suunas ring käib: x = paremale, y = üles, z = ettepoole'),
+        row('Pöördeid', f.turns, 'Mitu ringi (0,25 = veerand)'),
+        row('Punkte pöörde kohta', f.points, 'Mida rohkem punkte, seda ümaram ring (sileda liikumisega piisab 8-st)'),
+        row('Suund', f.clockwise),
+        row('Alguskoht', f.centred),
+        row('Kestus (s)', f.duration, 'Terve ringi aeg sekundites'),
+        row('Sile liikumine', f.smooth),
+        buttons,
+        el('div', 'fd__note', 'Ring asendab selle käe liikumistee punktid (muud kanalid jäävad nulli). Punkte saab hiljem ajajoonel muuta.'),
+      );
+      box.appendChild(body);
+      box.hidden = true;
+      document.body.appendChild(box);
+      makeDraggable(box, box.querySelector('.panel__bar'), 'viiper.ringPanel', () => [Math.max(0, window.innerWidth - 346), 120]);
+      box.addEventListener('keydown', (e) => e.stopPropagation());
+      box.addEventListener('keyup', (e) => e.stopPropagation());
+      ringPanel = box;
+    }
+    ringPanel.hidden = false;
+  }
+
   /** Insert a point on the path at fraction r, with the values the path has there. */
   function addPointAt(r) {
     const m = motion();
     if (!m) return;
     pin(m);
     const times = m.times;
-    const at = tracePoint(m.path, r, new Array(CHANNELS.length).fill(0), times).map((v) => Math.round(v * 1000) / 1000);
+    const at = tracePoint(m.path, r, new Array(CHANNELS.length).fill(0), times, m.smooth).map((v) => Math.round(v * 1000) / 1000);
     const next = times.findIndex((t) => t > r);
     const insertAt = next < 0 ? m.path.length - 1 : Math.max(1, next); // never after the last point, which stays the end
     const point = [...at];
@@ -2551,6 +2748,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   }
   function close() {
     base.close();
+    if (ringPanel) ringPanel.hidden = true;
     stopPlay(false);
     tweaks.setEditFrame(null); // (the keyframe being edited is let go with the dock; syncFrame takes it up again)
     isOpen = false;

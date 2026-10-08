@@ -78,7 +78,8 @@ const AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.
 //   curl      0..1 added to the curl of all four fingers, as the fingers folding in a goodbye wave
 //   outer     added (-1..1) to the curl of the index and little finger only, as the two horns of a sign folding down or up
 //             while the middle and ring finger stay (the curls are clamped to 0..1 after adding)
-// The hand takes the path once, slowing at the corners, and then holds its last point. When to reach each point is by default
+// The hand takes the path once, slowing at the corners (with `motion.smooth: true`: along one smooth curve through the points, slowing
+// only at the very start and end, so a circle drawn from a few points is round), and then holds its last point. When to reach each point is by default
 // worked out from the lengths of the segments (a long segment takes longer), so editing one point shifts the times of all the
 // others; `motion.times` (optional, one fraction 0..1 per point, rising, first 0 and last 1) pins the points in time instead.
 // `motion.stagger` (0 .. 0.33, optional) lets the fingers take the curl channel one after the other instead of together: each
@@ -97,7 +98,9 @@ function segmentShares(path, times) {
   if (times?.length === path.length) return times.slice(1).map((t, i) => Math.max(t - times[i], 0));
   const at = (pt, c) => pt[c] ?? 0;
   const lens = path.slice(1).map((b, i) => Math.hypot(...Array.from({ length: CHANNELS }, (_, c) => (at(b, c) - at(path[i], c)) * CHANNEL_WEIGHT[c])));
-  const total = lens.reduce((a, b) => a + b, 0) || 1;
+  const total = lens.reduce((a, b) => a + b, 0);
+  // (a path whose points all lie on one spot, a hand that stays put while the body moves in its keyframes: equal shares, not all points at 0)
+  if (!total) return lens.map(() => 1 / lens.length);
   return lens.map((l) => l / total);
 }
 
@@ -107,16 +110,40 @@ export function pathTimes(path, times) {
   return [0, ...segmentShares(path, times).map((s) => (acc += s))];
 }
 
-/** Point at fraction `r` (0..1) of the path, written into `out`; every segment gets a share of the time in proportion to its length. */
-export function tracePoint(path, r, out, times) {
+/** The cubic Hermite curve through p0 (at s = 0) and p1 (s = 1) with the slopes m0, m1 per unit of time, over a segment of duration `span`. */
+export const hermite = (p0, p1, m0, m1, s, span) => {
+  const s2 = s * s;
+  const s3 = s2 * s;
+  return (2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * span * m0 + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * span * m1;
+};
+
+/**
+ * Point at fraction `r` (0..1) of the path, written into `out`; every segment gets a share of the time in proportion to its length.
+ * Each segment is eased (slows at both ends); with `spline` the path is instead one smooth curve through the points (Catmull-Rom: the
+ * slope at a point is that between its neighbours), with no slowing at the points between, only at the very start and end.
+ */
+export function tracePoint(path, r, out, times, spline = false) {
   const at = (pt, c) => pt[c] ?? 0;
   const shares = segmentShares(path, times);
   let acc = 0;
   for (let i = 0; i < shares.length; i++) {
     const share = shares[i];
     if (r <= acc + share || i === shares.length - 1) {
-      const e = smooth(Math.min(Math.max((r - acc) / (share || 1), 0), 1));
-      for (let c = 0; c < CHANNELS; c++) out[c] = at(path[i], c) + (at(path[i + 1], c) - at(path[i], c)) * e;
+      const u = Math.min(Math.max((r - acc) / (share || 1), 0), 1);
+      if (!spline) {
+        const e = smooth(u);
+        for (let c = 0; c < CHANNELS; c++) out[c] = at(path[i], c) + (at(path[i + 1], c) - at(path[i], c)) * e;
+        return out;
+      }
+      const before = acc - (i > 0 ? shares[i - 1] : 0); // the times of the points around the segment
+      const after = acc + share + (i + 1 < shares.length ? shares[i + 1] : 0);
+      for (let c = 0; c < CHANNELS; c++) {
+        const p0 = at(path[i], c);
+        const p1 = at(path[i + 1], c);
+        const m0 = i > 0 ? (p1 - at(path[i - 1], c)) / (acc + share - before || 1) : 0;
+        const m1 = i + 2 < path.length ? (at(path[i + 2], c) - p0) / (after - acc || 1) : 0;
+        out[c] = hermite(p0, p1, m0, m1, u, share);
+      }
       return out;
     }
     acc += share;
@@ -206,10 +233,10 @@ export function createHands(root, side = 'R', { body = null } = {}) {
   const curlAt = (pt, f) => pt[6] + (f === 0 || f === 3 ? pt[7] : 0);
   /** The path at fraction `r`, into motion.off; the curl of each finger into motion.fingerCurl (staggered when the path says so). */
   const tracePath = (def, r) => {
-    tracePoint(def.path, r, motion.off, def.times);
+    tracePoint(def.path, r, motion.off, def.times, def.smooth);
     const gap = Math.min(Math.max(def.stagger ?? 0, 0), 1 / 3);
     for (let f = 0; f < 4; f++) {
-      motion.fingerCurl[f] = curlAt(gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint, def.times) : motion.off, f);
+      motion.fingerCurl[f] = curlAt(gap ? tracePoint(def.path, Math.min(Math.max((r - f * gap) / (1 - 3 * gap), 0), 1), fingerPoint, def.times, def.smooth) : motion.off, f);
     }
   };
   const stepMotion = (dt, k) => {

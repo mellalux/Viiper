@@ -214,6 +214,21 @@ describe('saving signs', () => {
     assert.equal((await editor.put('/api/data', { signs: { 'väike': { create: true, def } } })).status, 400);
   });
 
+  it('creates a letter (one upper-case letter) in the fingerspelling, not among the words', async () => {
+    const editor = await login('editor', 'another long password');
+    const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };
+    assert.equal((await editor.put('/api/data', { signs: { 'Å': { create: true, def } } })).status, 200);
+    const data = (await editor.get('/api/data')).json;
+    assert.equal(Object.keys(data.fingerspelling.signs).at(-1), 'Å');
+    assert.ok(!('Å' in data.words.signs));
+    assert.equal((await editor.put('/api/data', { signs: { 'Å': { create: true, def } } })).status, 409); // taken
+    assert.equal((await editor.put('/api/data', { signs: { 'Q': { create: true, def } } })).status, 409); // an existing letter
+    assert.equal((await editor.put('/api/data', { signs: { 'å': { create: true, def } } })).status, 400); // not upper case
+    assert.equal((await editor.put('/api/data', { signs: { '%': { create: true, def } } })).status, 400); // a symbol is neither
+    assert.equal((await editor.put('/api/data', { signs: { '7': { create: true, def } } })).status, 200); // a digit is a letter of the fingerspelling
+    assert.ok('7' in (await editor.get('/api/data')).json.fingerspelling.signs);
+  });
+
   it('refuses malformed definitions, tweaks and limits', async () => {
     const editor = await login('editor', 'another long password');
     const v = (await editor.get('/api/data')).json.versions;
@@ -221,6 +236,7 @@ describe('saving signs', () => {
     assert.equal((await put({ TERE: { base: v.TERE, def: { curl: [1, 2] } } })).status, 400);
     assert.equal((await put({ TERE: { base: v.TERE, def: { evil: 1 } } })).status, 400);
     assert.equal((await put({ TERE: { base: v.TERE, def: { motion: { path: [[0, 0]], duration: 1 } } } })).status, 400);
+    assert.equal((await put({ TERE: { base: v.TERE, def: { motion: { path: [[0, 0], [0.1, 0]], duration: 1, smooth: 'yes' } } } })).status, 400);
     assert.equal((await put({ TERE: { base: v.TERE, tweaks: { Bone: { rot: [1, 2] } } } })).status, 400);
     assert.equal((await put({ NOPE: { base: 1, def: {} } })).status, 400);
     assert.equal((await editor.put('/api/data', { limits: { base: v['*limits'], bones: { Arm: { x: [10, -10] } } } })).status, 400);

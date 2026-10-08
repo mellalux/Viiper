@@ -1,5 +1,6 @@
 import { LETTERS } from '../character/mouth.js';
 import { WORD_FORMS } from '../signing/hands.js';
+import { fingerspelling } from '../data/store.js';
 import { createLetterPanel } from '../ui/letterPanel.js';
 import { createTextPanel } from '../ui/textPanel.js';
 import { createSignBrowser } from '../ui/signBrowser.js';
@@ -8,7 +9,10 @@ import { say, press, release, holdMs } from './signing.js';
 
 /** The panels that play signs (letters, text box, sign browser) and the keyboard: hold a letter key to sign it. */
 export function createPanels() {
-  const alphabet = Object.keys(LETTERS);
+  // the letters with a mouth shape (shared.json) and the letters the editors have added to the fingerspelling since (one-letter signs: their
+  // mouth stays at rest, see signing.js); in the alphabet's order (Estonian)
+  const extra = Object.keys(fingerspelling.signs).filter((k) => [...k].length === 1 && !(k in LETTERS));
+  const alphabet = extra.length ? [...Object.keys(LETTERS), ...extra].sort(new Intl.Collator('et').compare) : Object.keys(LETTERS);
 
   // Alphabet: hold a letter key (or press a panel button) to show that mouth shape; release for rest.
   app.panel = createLetterPanel(alphabet, { onPress: press, onRelease: release });
@@ -43,7 +47,7 @@ export function createPanels() {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.target.tagName === 'SELECT') return;
     if (e.key === 'Escape') return say(null);
     const letter = e.key.toUpperCase();
-    if (letter in LETTERS) {
+    if (alphabet.includes(letter)) {
       heldKey = letter;
       press(letter);
     }

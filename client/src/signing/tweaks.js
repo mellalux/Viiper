@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { fingerspelling, words } from '../data/store.js';
-import { STANDBY, SIGNS, pathTimes } from './hands.js';
+import { STANDBY, SIGNS, pathTimes, hermite } from './hands.js';
 import { detectRig } from '../character/rigs.js';
 
 // Hand-tuned offsets for any bone, layered on top of whatever poses it (hands.js, mouth.js) or its rest pose.
@@ -181,7 +181,31 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     let i = times.findIndex((t, k) => k < times.length - 1 && progress <= times[k + 1]);
     if (i < 0) i = times.length - 2;
     const span = times[i + 1] - times[i];
-    return { a: fr[i], b: fr[i + 1], s: smooth(Math.min(Math.max((progress - times[i]) / (span || 1), 0), 1)) };
+    const u = Math.min(Math.max((progress - times[i]) / (span || 1), 0), 1);
+    // with `motion.smooth` the pose follows one curve through the frames (as the hand does, see hands.js tracePoint): the frames before
+    // and after those two give the slopes (an empty object: that frame says nothing; null: there is no such point)
+    const spline = !!m.smooth;
+    return {
+      a: fr[i],
+      b: fr[i + 1],
+      s: spline ? u : smooth(u),
+      spline,
+      pm: spline && i > 0 ? (fr[i - 1] ?? {}) : null,
+      nx: spline && i + 2 < times.length ? (fr[i + 2] ?? {}) : null,
+      t: [times[i - 1], times[i], times[i + 1], times[i + 2]],
+    };
+  };
+  /** Entries pm, a, b, nx (pm / nx null: no neighbour, slope 0) joined by one Hermite curve at `s` (0..1 between a and b), over times t. */
+  const splineEntry = (pm, a, b, nx, t, s) => {
+    const span = t[2] - t[1];
+    const comp = (get) => {
+      const p0 = get(a);
+      const p1 = get(b);
+      const m0 = pm ? (p1 - get(pm)) / (t[2] - t[0] || 1) : 0;
+      const m1 = nx ? (get(nx) - p0) / (t[3] - t[1] || 1) : 0;
+      return hermite(p0, p1, m0, m1, s, span);
+    };
+    return { rot: [0, 1, 2].map((k) => comp((e) => e.rot?.[k] ?? 0)), pos: [0, 1, 2].map((k) => comp((e) => e.pos?.[k] ?? 0)), w: comp((e) => e.w ?? 0) };
   };
   const lerp = (a, b, s) => a + (b - a) * s;
   /** Entry `a` eased into entry `b` (either may be missing: nothing), `s` 0..1. */
@@ -219,7 +243,14 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       const key = keyOf(e, currentKey);
       let t = key == null ? null : bucket(key)?.[e.name];
       // (a bone a keyframe doesn't mention keeps the sign's own tweak at that frame)
-      if (seg && (seg.a?.[e.name] || seg.b?.[e.name])) t = mixEntry(seg.a?.[e.name] ?? t, seg.b?.[e.name] ?? t, seg.s);
+      if (seg && (seg.a?.[e.name] || seg.b?.[e.name] || seg.pm?.[e.name] || seg.nx?.[e.name])) {
+        if (!seg.spline) t = mixEntry(seg.a?.[e.name] ?? t, seg.b?.[e.name] ?? t, seg.s);
+        else {
+          const own = t ?? {};
+          const of = (f) => (f ? (f[e.name] ?? own) : null); // (a frame that says nothing about the bone has the sign's own tweak)
+          t = splineEntry(of(seg.pm), of(seg.a ?? {}), of(seg.b ?? {}), of(seg.nx), seg.t, seg.s);
+        }
+      }
       // Every bone and shape also gets the tweaks of the base pose the sign holds its hand in: an arm bone those of its own arm's orient,
       // the body, the face and the shapes those of the signing (right) hand's. While the editor shows an orient (suspended is set) that
       // is the orient shown; its arm then has no tweaks but the base pose's.
@@ -566,22 +597,25 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
      * tweaks), and shape weights 0. What the base pose keeps is the difference to the sign's own tweaks (see set).
      */
     restPose(orient, pick = null) {
-      for (const e of items) {
-        if (pick && !pick(e)) continue;
-        if (e.shape) {
-          api.set(`~${orient}`, e.name, { w: 0 });
-          continue;
-        }
-        // (the inverse of apply: the bone's rest pose on top of the pose it has without any tweak, see tweakFor)
-        const m = Math.max(e.armSide ? weight(e.armSide) : 1, 0.05);
-        const euler = new THREE.Euler().setFromQuaternion(e.base.q.clone().invert().multiply(e.rest.q), 'XYZ');
-        const offset = e.rest.p.clone().sub(e.base.p).applyQuaternion(e.parentInv.clone().invert());
-        const tenth = (x) => Math.round(x * 10) / 10 || 0;
-        api.set(`~${orient}`, e.name, {
-          rot: [euler.x, euler.y * e.flip, euler.z * e.flip].map((r) => tenth(r / D2R / m)),
-          pos: offset.multiplyScalar((1000 * e.unit) / m).multiply(new THREE.Vector3(e.flip, 1, 1)).toArray().map(tenth),
-        });
-      }
+      for (const e of items) if (!pick || pick(e)) api.set(`~${orient}`, e.name, api.restTweak(e.name));
+    },
+    /**
+     * The tweak that puts a bone (or a shape key: weight 0) in the pose it has in the model's file (the GLB): its rest rotation and
+     * position, whatever poses it (the hand's IK, ...). The inverse of apply, on top of the pose the bone has without any tweak (see tweakFor).
+     * @returns { rot, pos } degrees and millimetres (to a tenth), or { w: 0 } for a shape key
+     */
+    restTweak(name) {
+      const e = byName.get(name);
+      if (!e) return null;
+      if (e.shape) return { w: 0 };
+      const m = Math.max(e.armSide ? weight(e.armSide) : 1, 0.05);
+      const euler = new THREE.Euler().setFromQuaternion(e.base.q.clone().invert().multiply(e.rest.q), 'XYZ');
+      const offset = e.rest.p.clone().sub(e.base.p).applyQuaternion(e.parentInv.clone().invert());
+      const tenth = (x) => Math.round(x * 10) / 10 || 0;
+      return {
+        rot: [euler.x, euler.y * e.flip, euler.z * e.flip].map((r) => tenth(r / D2R / m)),
+        pos: offset.multiplyScalar((1000 * e.unit) / m).multiply(new THREE.Vector3(e.flip, 1, 1)).toArray().map(tenth),
+      };
     },
     /** Take the tweaks of a base pose away again: all of them, or only those of the bones / shapes `pick(entry)` is true for. */
     clearPose(orient, pick = null) {

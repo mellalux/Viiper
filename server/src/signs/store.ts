@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { HttpError } from '../auth/users.js';
-import { SIGN_FIELDS, buildLimits, canon, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isObject, type Json, type Obj } from './validate.js';
+import { SIGN_FIELDS, buildLimits, canon, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isLetterName, isObject, type Json, type Obj } from './validate.js';
 
 // The signs are kept as documents: one row per sign holding its definition and its bone tweaks as JSON. The API hands them out in
 // the shape of the client's data files (fingerspelling.json, words.json, limits.json), so the client reads either.
@@ -117,9 +117,11 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
         checkSignName(key);
         const aliases = readSetting(db, 'aliases');
         if (row || (aliases && key in JSON.parse(aliases.value))) throw new HttpError(409, `Märk "${key}" on juba olemas.`, { conflicts: [key] });
-        const last = db.prepare("SELECT COALESCE(MAX(position), -1) AS p FROM signs WHERE kind = 'word'").get() as { p: number };
+        // a one-letter name is a letter (sõrmend, in the fingerspelling), any other a word sign (viip)
+        const kind = isLetterName(key) ? 'letter' : 'word';
+        const last = db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM signs WHERE kind = ?').get(kind) as { p: number };
         const def = hasDef ? pickDef(ch.def as Obj) : {};
-        insert.run(key, 'word', last.p + 1, JSON.stringify(def), tweaks ? JSON.stringify(tweaks) : null, at, userId);
+        insert.run(key, kind, last.p + 1, JSON.stringify(def), tweaks ? JSON.stringify(tweaks) : null, at, userId);
         log.run(key, 1, JSON.stringify({ def, tweaks }), userId, at);
         saved[key] = 1;
         continue;
