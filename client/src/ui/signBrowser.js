@@ -169,6 +169,11 @@ export function createSignBrowser(signs, { aliases = {}, alphabet, holdMs, onPre
     }
   }
   openButton.addEventListener('click', () => setOpen(box.hidden));
+  // The fine-tuning window starting stops the repeating and closes this panel: a sign being tuned must hold still.
+  window.addEventListener('viiper:editor-open', () => {
+    repeat.checked = false;
+    setOpen(false);
+  });
   box.querySelector('.sign-box__close').addEventListener('click', () => setOpen(false));
   box.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') setOpen(false);

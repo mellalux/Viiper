@@ -2600,7 +2600,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   function makeRing(o) {
     const p = part();
     if (!p || !key || key === STANDBY) return;
-    if (hand === 'R' && tweaks.frameSigns().includes(key) && !confirm('Ring asendab tee punktid. Selle viipe keyframe\'id kustutatakse (need on seotud punktidega). Jätkan?')) return;
+    if (hand === 'R' && tweaks.frameSigns().includes(key) && !confirm('Ring asendab tee punktid, nii et selle viipe keyframe\'id kustutatakse (need on seotud punktidega). Esimese keyframe\'i käe, näo ja luude asend jääb märgi enda asendiks ja ring algab sellest. Jätkan?')) return;
     const [a, b] = RING_PLANES[o.plane] ?? RING_PLANES.xy;
     const n = clamp(Math.round(o.points), 4, 64); // points per turn
     const total = Math.max(1, Math.round(o.turns * n));
@@ -2620,7 +2620,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     delete p.motion.times; // (the segments of a ring are all as long: equal shares of the time)
     if (o.smooth) p.motion.smooth = true;
     else delete p.motion.smooth;
-    framesFollow(() => tweaks.dropFrames(key));
+    // (the hand may have been placed in the first keyframe: that pose is what the ring starts from, so it becomes the sign's own before the frames go)
+    framesFollow(() => {
+      tweaks.bakeFrame(key, 0);
+      tweaks.dropFrames(key);
+    });
     selPoint = 0;
     buildTimeline();
     changed();
@@ -2839,6 +2843,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   grip.addEventListener('pointercancel', endResize);
 
   function open(next) {
+    window.dispatchEvent(new Event('viiper:editor-open')); // (the sign viewer stops repeating and closes: signBrowser.js)
     isOpen = true;
     dock.hidden = false;
     launch.hidden = true;

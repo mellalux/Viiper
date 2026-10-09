@@ -105,5 +105,9 @@ export function makeDraggable(panel, bar, storageKey, defaultPosition, toggleIco
   bar.addEventListener('pointerup', endDrag);
   bar.addEventListener('pointercancel', endDrag);
   // (a panel that is not shown has no position to keep: its offsets read 0)
-  window.addEventListener('resize', () => panel.getClientRects().length && place(panel.offsetLeft, panel.offsetTop));
+  const refit = () => panel.getClientRects().length && place(panel.offsetLeft, panel.offsetTop);
+  window.addEventListener('resize', refit);
+  // A panel made while it is hidden (the editor's) was kept on the screen by a width of 0: a position saved on a bigger screen left it
+  // outside this one. It is brought back inside with its real size whenever it is shown.
+  new MutationObserver(refit).observe(panel, { attributes: true, attributeFilter: ['hidden'] });
 }

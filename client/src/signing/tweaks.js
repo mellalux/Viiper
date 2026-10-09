@@ -427,6 +427,21 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       }
       recompute(-2);
     },
+    /**
+     * Frame `i` becomes the sign's own tweaks (what the frame sets, the sign has from now on; the frame itself stays). The body's bones are
+     * left out: they are the same for every sign, a frame's body pose is only the sign's. Returns how many bones were taken over.
+     */
+    bakeFrame(key, i) {
+      const fr = data.frames[key]?.[i];
+      let n = 0;
+      for (const [name, entry] of Object.entries(fr ?? {})) {
+        const e = byName.get(name);
+        if (!e || e.group === 'body') continue;
+        api.set(keyOf(e, key), name, entry, true);
+        n++;
+      }
+      return n;
+    },
     /** Frame `i` holds nothing again (it then follows the sign's own tweaks). */
     clearFrame(key, i) {
       delete data.frames[key]?.[i];
