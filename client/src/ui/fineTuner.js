@@ -4,12 +4,12 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { api, ApiError } from '../auth.js';
-import { versions } from '../data/store.js';
+import { versions, fromServer } from '../data/store.js';
 import { askLogin } from './account.js';
 import { makeDraggable } from './draggable.js';
 import { ICONS, iconButton, topbar } from './topbar.js';
 import { canon, fingerprint, fold } from '../util.js';
-import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
+import { STANDBY, SIGNS, WORD_FORMS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
 import * as defs from '../signing/signDefs.js';
 import * as orients from '../signing/orients.js';
@@ -173,6 +173,12 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd__chip--hint { outline: 1px dashed #5fd0a0; }
 .fd__chip--changed::after { content: ' •'; color: #ffb347; }
 .fd__chip--current.fd__chip--changed::after { color: #ffe0a8; }
+.fd__inline { display: flex; gap: 6px; }
+.fd__inline > input { flex: 1; width: 0; }
+.fd__aliases { display: flex; flex-wrap: wrap; gap: 4px; }
+.fd__alias { display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 2px 0 8px; border-radius: 6px; font-size: 12px; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); }
+.fd .fd__alias button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: none; font-size: 11px; line-height: 1; }
+.fd button.fd__danger:hover:not(:disabled) { background: #b04a4a; border-color: #e08a8a; color: #fff; }
 .fd__empty { margin: auto 2px; color: #7a7a85; font-size: 12px; }
 
 .fd__tl { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 6px 12px 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
@@ -554,7 +560,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     statusEl.title = statusEl.textContent;
     saveBtn.disabled = !parts.length;
     resetSignBtn.disabled = !key || !dirtySigns.has(key);
-    delBtn.hidden = !key || !defs.isNew(key);
+    refreshMeta();
     refreshChips(new Set([...signs, ...bones]));
   }
   /** A sign's definition changed (or its motion): store it, show it, update the marks. `id` names a continuous gesture (see commit). */
@@ -733,9 +739,16 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const q = fold(search.value.trim());
     let first = null;
     let prefix = null;
+    // the aliases (other typed forms: "0" for NULL) find their sign too; read live, a new sign's alias counts at once
+    const aliasFolds = new Map();
+    if (q) {
+      for (const [a, sign] of Object.entries(WORD_FORMS)) {
+        if (a !== sign) aliasFolds.set(sign, [...(aliasFolds.get(sign) ?? []), fold(a)]);
+      }
+    }
     for (const [l, f] of folded) {
       // letters match by their start, words anywhere
-      const hit = !q || (l.length === 1 ? f.startsWith(q) : f.includes(q));
+      const hit = !q || (l.length === 1 ? f.startsWith(q) : f.includes(q)) || !!aliasFolds.get(l)?.some((a) => a.includes(q));
       chips.get(l).hidden = !hit;
       if (hit && !first) first = l;
       if (hit && !prefix && f.startsWith(q)) prefix = l;
@@ -797,13 +810,26 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   newAlias.title = 'Teine kirjapilt, millega sama viipe saab kätte. Üks täht või number (nt 0 viibele NULL) lisatakse sõrmendite nuppude hulka ja suu ütleb viipe sõna (null); pikem kirjapilt on tekstikasti sõna.';
   const newCopy = input('checkbox', { checked: false });
   const newBtn = el('button', '', '＋ Lisa sõrmend või viip');
-  const delBtn = el('button', '', 'Kustuta see uus');
-  delBtn.title = 'Eemaldab märgi, mida pole veel faili salvestatud';
-  delBtn.hidden = true;
+  // the sign being edited: its name, its aliases, and removing it
+  const metaTitle = el('div', 'fd__sub');
+  const renameField = input('text', { className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false, title: 'Märgi nimi: seda tipitakse, et märk kätte saada (suurtähtedes)' });
+  const renameBtn = el('button', '', 'Nimeta ümber');
+  const renameRow = el('div', 'fd__inline');
+  renameRow.append(renameField, renameBtn);
+  const aliasList = el('div', 'fd__aliases');
+  const aliasField = input('text', { className: 'fd__search', maxLength: 40, placeholder: 'Uus alias, nt 0 või PALJU ÕNNE', autocomplete: 'off', spellcheck: false, title: 'Teine kirjapilt, millega sama märk kätte saada. Üks täht või number lisatakse sõrmendite nuppude hulka.' });
+  const aliasBtn = el('button', '', '＋ Alias');
+  const aliasRow = el('div', 'fd__inline');
+  aliasRow.append(aliasField, aliasBtn);
+  const delBtn = el('button', 'fd__danger', 'Kustuta see märk');
+  const metaNote = el('div', 'fd__note');
+  const metaBox = el('div', 'fd__col');
+  metaBox.hidden = true;
+  metaBox.append(metaTitle, renameRow, aliasList, aliasRow, delBtn, metaNote);
   const newNote = el('div', 'fd__note');
   const newCopyRow = el('label', 'fd__row');
   newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
-  blockSign.append(el('div', 'fd__h', 'Sõrmendid ja viiped'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus sõrmend või viip'), newName, newAlias, newCopyRow, newBtn, delBtn, newNote);
+  blockSign.append(el('div', 'fd__h', 'Sõrmendid ja viiped'), search, chipBox, metaBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus sõrmend või viip'), newName, newAlias, newCopyRow, newBtn, newNote);
 
   function createSign() {
     const name = defs.normalizeName(newName.value);
@@ -864,8 +890,154 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     newNote.textContent = `${isLetterName(gone) ? 'Sõrmend' : 'Viip'} ${gone} kustutatud.`;
   }
   newBtn.addEventListener('click', createSign);
-  delBtn.addEventListener('click', deleteSign);
   newName.addEventListener('keydown', (e) => e.key === 'Enter' && createSign());
+
+  // ---- the sign being edited: rename, aliases, delete
+  // A saved sign's name, aliases and removal go to the server at once (not with "Salvesta": they change more than one sign's numbers) and the
+  // page then reloads, as after adding a sign: the text box and the sign list read the signs when the page loads. A sign that is not saved
+  // yet can only be deleted here (nothing is on the server to change).
+  const PICK_KEY = 'viiper.pickSign'; // the sign to show after that reload
+  const aliasesOfSign = (k) => Object.entries(WORD_FORMS).filter(([a, s]) => s === k && a !== k).map(([a]) => a);
+  /** The aliases the server has (those of a sign that is not saved yet are left out). */
+  const savedAliases = () => Object.fromEntries(Object.entries(WORD_FORMS).filter(([a, s]) => a !== s && !defs.isNew(s)));
+  const serverOk = () => fromServer && Object.keys(versions).length > 0;
+  let metaSig = '';
+  let metaKey = null;
+  let metaBusy = false;
+  let reloading = false;
+  const say = (text, warn = false) => {
+    metaNote.textContent = text;
+    metaNote.classList.toggle('fd__warn', warn);
+  };
+  function refreshMeta() {
+    const real = !!key && key !== STANDBY;
+    metaBox.hidden = !real;
+    if (!real) return;
+    const isNew = defs.isNew(key);
+    const aliases = aliasesOfSign(key);
+    const sig = `${key}\n${isNew}\n${aliases.join('\n')}`;
+    if (sig !== metaSig) {
+      if (key !== metaKey) {
+        metaKey = key;
+        say(isNew ? 'Uue märgi nime ja aliaseid saab muuta pärast salvestamist (kustutada saab kohe).' : serverOk() ? '' : 'Serveriga pole ühendust: märgi nime ja aliaseid ei saa muuta.');
+      }
+      metaSig = sig;
+      metaTitle.textContent = `Märk ${key}`;
+      renameField.value = key;
+      aliasList.replaceChildren(
+        ...aliases.map((a) => {
+          const chip = el('span', 'fd__alias', a);
+          const x = el('button', '', '✕');
+          x.title = `Eemalda alias ${a}`;
+          x.disabled = isNew || metaBusy || reloading || !serverOk();
+          x.addEventListener('click', () => removeAlias(a));
+          chip.append(x);
+          return chip;
+        }),
+      );
+      if (!aliases.length) aliasList.append(el('span', 'fd__note', 'Aliaseid pole'));
+    }
+    const locked = isNew || metaBusy || reloading || !serverOk();
+    for (const b of [renameField, renameBtn, aliasField, aliasBtn]) b.disabled = locked;
+    for (const b of aliasList.querySelectorAll('button')) b.disabled = locked;
+    delBtn.disabled = metaBusy || reloading || (!isNew && !serverOk());
+    delBtn.textContent = isNew ? 'Kustuta see uus märk' : 'Kustuta see märk';
+    delBtn.title = isNew ? 'Eemaldab märgi, mida pole veel serverisse salvestatud' : 'Kustutab märgi serverist, nii et kõik näevad seda (varasemad versioonid jäävad ajalukku)';
+  }
+  /** Run a server change: the buttons wait meanwhile, a failure is told in the card. */
+  async function metaOp(fn) {
+    if (metaBusy || reloading) return;
+    metaBusy = true;
+    refreshMeta();
+    try {
+      await fn();
+    } catch (err) {
+      console.warn('Could not change the sign', err);
+      const conflicts = err.body?.conflicts;
+      say(conflicts?.length ? `Keegi teine on vahepeal muutnud: ${conflicts.join(', ')} – lae leht uuesti ja proovi siis.` : `Ei õnnestunud: ${err.message}`, true);
+    } finally {
+      metaBusy = false;
+      metaSig = '';
+      refreshMeta();
+    }
+  }
+  /** Reload the page (it reads the signs when it loads) and show `pick` again. */
+  function reloadWith(pick, text) {
+    reloading = true;
+    say(`${text} – laen uuesti…`);
+    try {
+      sessionStorage.setItem(PICK_KEY, pick);
+    } catch {}
+    setTimeout(() => location.reload(), 600);
+  }
+  /** Replace the saved aliases by `next` ({ alias: sign }); the typed forms follow at once. */
+  async function sendAliases(next) {
+    const res = await putChanges({ aliases: { base: versions['*aliases'] ?? 0, data: next } });
+    Object.assign(versions, res.versions);
+    for (const a of Object.keys(savedAliases())) if (!(a in next)) delete WORD_FORMS[a];
+    Object.assign(WORD_FORMS, next);
+  }
+  const addAlias = () =>
+    metaOp(async () => {
+      const sign = key;
+      const alias = defs.normalizeName(aliasField.value);
+      if (!alias) return;
+      const problem = defs.checkAlias(alias, sign);
+      if (problem) return say(problem, true);
+      await sendAliases({ ...savedAliases(), [alias]: sign });
+      aliasField.value = '';
+      say(`Alias ${alias} lisatud. Tekstikast ja viipeloend näevad seda lehe uuesti laadimisel.`);
+    });
+  const removeAlias = (alias) =>
+    metaOp(async () => {
+      const { [alias]: _gone, ...rest } = savedAliases();
+      await sendAliases(rest);
+      say(`Alias ${alias} eemaldatud. Tekstikast ja viipeloend näevad seda lehe uuesti laadimisel.`);
+    });
+  const renameSign = () =>
+    metaOp(async () => {
+      const from = key;
+      const to = defs.normalizeName(renameField.value);
+      if (to === from) return;
+      const problem = defs.checkName(to);
+      if (problem) return say(problem, true);
+      if (isLetterName(to) !== isLetterName(from)) return say('Sõrmendi (üks täht) ja viipe (pikem nimi) vahel nime abil ei vaheta: tee uus märk koopiana ja kustuta see.', true);
+      if (dirtySigns.has(from) || changedTweakKeys().includes(from)) return say(`Märgil ${from} on salvestamata muudatusi: salvesta (või lähtesta) need enne ümbernimetamist.`, true);
+      if (!confirm(`Nimetan märgi ${from} ümber ${to}? Seda näevad kõik; selle aliased ja ajalugu lähevad kaasa.`)) return;
+      await putChanges({ signs: { [from]: { base: versions[from], rename: to } } });
+      // the keyframes live only in this browser: they move to the new name
+      saveFrames();
+      const frames = readLS(FRAMES_KEY);
+      if (frames?.frames?.[from]) {
+        frames.frames[to] = frames.frames[from];
+        delete frames.frames[from];
+        if (frames.n) [frames.n[to], frames.n[from]] = [frames.n[from], undefined];
+        writeLS(FRAMES_KEY, frames);
+      }
+      reloadWith(to, `Märk ${from} on nüüd ${to}`);
+    });
+  const deleteSaved = () =>
+    metaOp(async () => {
+      const gone = key;
+      const at = letters.indexOf(gone);
+      const next = [...letters.slice(at + 1), ...letters.slice(0, at).reverse()].find((l) => l !== STANDBY);
+      const unsaved = dirtySigns.has(gone) || changedTweakKeys().includes(gone);
+      if (!confirm(`Kustutan märgi ${gone} serverist? Seda näevad kõik: märk kaob koos oma aliaste, luumuudatuste ja liikumisega (varasemad versioonid jäävad ajalukku).${unsaved ? ' Selle salvestamata muudatused lähevad kaduma.' : ''}`)) return;
+      await putChanges({ signs: { [gone]: { base: versions[gone], delete: true } } });
+      delete versions[gone];
+      // its working copy goes too (it must not come back with a sign of the same name made later)
+      defs.resetSign(gone);
+      defs.persist();
+      tweaks.reset(gone, items.map((x) => x.name));
+      tweaks.dropFrames(gone);
+      saveTweaks();
+      reloadWith(next, `Märk ${gone} kustutatud`);
+    });
+  renameBtn.addEventListener('click', renameSign);
+  renameField.addEventListener('keydown', (e) => e.key === 'Enter' && renameSign());
+  aliasBtn.addEventListener('click', addAlias);
+  aliasField.addEventListener('keydown', (e) => e.key === 'Enter' && addAlias());
+  delBtn.addEventListener('click', () => (key && defs.isNew(key) ? deleteSign() : deleteSaved()));
 
   function setHand(next) {
     hand = next;
@@ -2984,7 +3156,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   renderHand();
   onStandby(standbyOn);
   applyHeight();
-  if (readLS(UI_KEY)?.open) open();
+  let picked = null; // the sign that was renamed (or the one next to a deleted one): the page was reloaded for it
+  try {
+    picked = sessionStorage.getItem(PICK_KEY);
+    sessionStorage.removeItem(PICK_KEY);
+  } catch {}
+  if (readLS(UI_KEY)?.open) open(picked);
 
   return {
     /** True while the character must hold the sign still: the dock is open and the motion is not playing. */

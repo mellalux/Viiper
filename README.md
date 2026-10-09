@@ -154,7 +154,7 @@ The JSON files in [client/src/data/](client/src/data/) are still there, in three
 | | | |
 | --- | --- | --- |
 | `GET /api/data` | public | `{ fingerspelling, words, limits, versions }`, the shape of the JSON files (notes only for signed-in users) |
-| `PUT /api/data` | signed in | `{ signs: { KEY: { def?, tweaks?, base, create? } }, global?: { tweaks, base }, limits?: { bones, finger, base }, orients?: { data, base }, thumbPoses?: { data: { rig: { name: pose } }, base } }`; all or nothing, 409 + `conflicts` when a `base` version is stale |
+| `PUT /api/data` | signed in | `{ signs: { KEY: { def?, tweaks?, base, create?, aliases?, rename?: "NEW", delete? } }, aliases?: { data: { alias: sign }, base }, global?: { tweaks, base }, limits?: { bones, finger, base }, orients?: { data, base }, thumbPoses?: { data: { rig: { name: pose } }, base } }`; all or nothing, 409 + `conflicts` when a `base` version is stale. A rename keeps the sign's place, history and aliases; a delete removes its aliases (the history stays). In the answer's `versions` a renamed / deleted key is 0 |
 | `GET /api/history/:target` | signed in | the saves of a sign, `*global` or `*limits` |
 | `POST /api/auth/login`, `/logout`, `/password`; `GET /api/auth/me` | | sessions |
 | `GET/POST /api/users`, `PATCH/DELETE /api/users/:id` | admin | accounts |

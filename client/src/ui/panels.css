@@ -51,7 +51,7 @@ button.panel-close.panel-close:hover { color: #e8e8ec; background: rgba(255, 255
 
 /* ---------------------------------------------------------------- letter panel (letterPanel.js) */
 .letter-panel { padding: 0 0 10px; }
-.letter-panel__grid { display: grid; grid-template-columns: repeat(8, 38px); gap: 6px; padding: 10px 12px 0; }
+.letter-panel__grid { display: grid; grid-template-columns: repeat(10, 38px); gap: 6px; padding: 10px 12px 0; }
 .letter-panel__key {
   height: 38px; padding: 0; border-radius: 8px; cursor: pointer; font: inherit; font-size: 15px; font-weight: 600;
   color: #e8e8ec; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1);

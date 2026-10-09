@@ -228,6 +228,61 @@ describe('saving signs', () => {
     assert.equal((await editor.put('/api/data', { signs: { '0': { create: true, def } } })).status, 409); // an alias is a name taken
   });
 
+  it('renames a sign (its aliases and history follow) and deletes one (its aliases go)', async () => {
+    const editor = await login('editor', 'another long password');
+    const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };
+    const put = (body: unknown) => editor.put('/api/data', body);
+    const data = async () => (await editor.get('/api/data')).json;
+    assert.equal((await put({ signs: { KASS: { create: true, def, aliases: ['KILL', '9'] }, KOER: { create: true, def } } })).status, 200);
+    let v = (await data()).versions;
+
+    assert.equal((await put({ signs: { KASS: { base: v.KASS, rename: 'KOER' } } })).status, 409); // taken
+    assert.equal((await put({ signs: { KASS: { base: v.KASS, rename: 'KILL' } } })).status, 409); // an alias is a name taken
+    assert.equal((await put({ signs: { KASS: { base: v.KASS, rename: 'kass2' } } })).status, 400); // not upper case
+    assert.equal((await put({ signs: { KASS: { base: v.KASS, rename: 'Ä' } } })).status, 400); // a word sign does not become a letter
+    assert.equal((await put({ signs: { KASS: { base: v.KASS - 1, rename: 'KISS' } } })).status, 409); // stale
+    const res = await put({ signs: { KASS: { base: v.KASS, rename: 'KISS' } } });
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.equal(res.json.versions.KASS, 0);
+    let d = await data();
+    assert.ok('KISS' in d.words.signs && !('KASS' in d.words.signs));
+    assert.deepEqual([d.words.aliases.KILL, d.words.aliases['9']], ['KISS', 'KISS']);
+    assert.equal(Object.keys(d.words.signs).indexOf('KISS') + 1, Object.keys(d.words.signs).indexOf('KOER')); // keeps its place
+    assert.equal((await editor.get('/api/history/KISS')).json.history.length, 2); // created + renamed
+    assert.equal((await editor.get('/api/history/KASS')).json.history.length, 0);
+
+    v = d.versions;
+    assert.equal((await put({ signs: { KISS: { base: v.KISS - 1, delete: true } } })).status, 409);
+    assert.equal((await put({ signs: { KISS: { base: v.KISS, delete: true } } })).status, 200);
+    d = await data();
+    assert.ok(!('KISS' in d.words.signs) && !('KISS' in d.versions));
+    assert.ok(!Object.values(d.words.aliases).includes('KISS'), 'its aliases are gone with it');
+    assert.equal((await put({ signs: { KISS: { base: 1, delete: true } } })).status, 400); // no such sign any more
+    assert.equal((await put({ signs: { KISS: { create: true, def } } })).status, 200); // the name is free again
+  });
+
+  it('replaces the aliases as a whole: adds, removes, refuses a bad or taken one and a stale save', async () => {
+    const editor = await login('editor', 'another long password');
+    const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };
+    assert.equal((await editor.put('/api/data', { signs: { LAMBA: { create: true, def, aliases: ['LAMP'] } } })).status, 200);
+    const d = (await editor.get('/api/data')).json;
+    const base = d.versions['*aliases'];
+    const set = (data: unknown, b = base) => editor.put('/api/data', { aliases: { base: b, data } });
+    const kept = d.words.aliases;
+    assert.equal((await set({ ...kept, ÄÄÄ: 'POLE_POLE' })).status, 400); // points at no sign
+    assert.equal((await set({ ...kept, LAMBA: 'TERE' })).status, 409); // a sign's name
+    assert.equal((await set({ ...kept, '%': 'LAMBA' })).status, 400); // a bad alias
+    assert.equal((await set({ ...kept, LAMBA2: 'LAMBA', LAMP: 'LAMBA' }, base - 1)).status, 409); // stale
+    assert.equal((await set({ ...kept, LAMBA2: 'LAMBA', LAMP: 'LAMBA' })).status, 200);
+    const next = (await editor.get('/api/data')).json;
+    assert.equal(next.words.aliases.LAMBA2, 'LAMBA');
+    assert.equal(next.versions['*aliases'], base + 1);
+    const { LAMP: _gone, ...rest } = next.words.aliases;
+    assert.equal((await set(rest, base + 1)).status, 200); // removed
+    assert.ok(!('LAMP' in (await editor.get('/api/data')).json.words.aliases));
+    assert.equal((await client().put('/api/data', { aliases: { base: 0, data: {} } })).status, 401);
+  });
+
   it('creates a letter (one upper-case letter) in the fingerspelling, not among the words', async () => {
     const editor = await login('editor', 'another long password');
     const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };

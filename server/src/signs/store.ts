@@ -69,7 +69,9 @@ export function readData(db: Db, { notes }: { notes: boolean }): SignData {
 /** What the editor sends: the signs it changed, each with the version it started from, and optionally the global tweaks and the limits. */
 export interface Changes {
   /** `aliases` (only with `create`): other typed forms the new sign gets, e.g. "0" for NULL (a one-character alias joins the fingerspelling's buttons). */
-  signs?: Record<string, { create?: boolean; base?: number | null; def?: unknown; tweaks?: unknown; aliases?: unknown }>;
+  signs?: Record<string, { create?: boolean; base?: number | null; def?: unknown; tweaks?: unknown; aliases?: unknown; delete?: boolean; rename?: unknown }>;
+  /** Every alias as it is now (replaces the saved ones): { alias: sign }. */
+  aliases?: { base: number; data: unknown };
   global?: { tweaks: unknown; base: number };
   limits?: { base: number; bones: unknown; finger?: unknown };
   /** Every orient as it is now (replaces the saved ones). */
@@ -104,6 +106,16 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
     const at = now();
     const saved: Record<string, number> = {};
     const conflicts: string[] = [];
+    const readAliases = () => {
+      const cur = readSetting(db, 'aliases');
+      return { map: (cur ? JSON.parse(cur.value) : {}) as Obj, version: cur?.version ?? 0 };
+    };
+    const writeAliases = (map: Obj) => {
+      const version = readAliases().version + 1;
+      putSetting.run('aliases', JSON.stringify(map), version, at, userId);
+      log.run('*aliases', version, JSON.stringify(map), userId, at);
+      saved['*aliases'] = version;
+    };
 
     for (const [key, ch] of Object.entries(changes.signs ?? {})) {
       if (!isObject(ch)) throw new HttpError(400, `Vigane muudatus märgile "${key}".`);
@@ -153,6 +165,31 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
       }
       const oldDef: Obj = JSON.parse(row.def);
       const oldTweaks: Obj | null = row.tweaks ? JSON.parse(row.tweaks) : null;
+
+      // deleting or renaming a sign: its aliases go (or follow); the history stays (a renamed sign takes it along). Version 0 in the answer = no such sign any more.
+      if (ch.delete || ch.rename !== undefined) {
+        const version = row.version + 1;
+        const { map } = readAliases();
+        if (ch.delete) {
+          db.prepare('DELETE FROM signs WHERE key = ?').run(key);
+          log.run(key, version, JSON.stringify({ deleted: true, def: oldDef, tweaks: oldTweaks }), userId, at);
+          saved[key] = 0;
+          const kept = Object.fromEntries(Object.entries(map).filter(([, sign]) => sign !== key));
+          if (Object.keys(kept).length !== Object.keys(map).length) writeAliases(kept);
+        } else {
+          const to = checkSignName(ch.rename);
+          if (to === key) throw new HttpError(400, 'Uus nimi on sama mis vana.');
+          if (isLetterName(to) !== isLetterName(key)) throw new HttpError(400, 'Sõrmendi (üks täht) ja viipe (pikem nimi) vahel ei saa nime abil vahetada.');
+          if (get.get(to) || to in map) throw new HttpError(409, `Märk "${to}" on juba olemas.`, { conflicts: [to] });
+          db.prepare('UPDATE signs SET key = ?, version = ?, updated_at = ?, updated_by = ? WHERE key = ?').run(to, version, at, userId, key);
+          db.prepare('UPDATE history SET target = ? WHERE target = ?').run(to, key);
+          log.run(to, version, JSON.stringify({ def: oldDef, tweaks: oldTweaks, renamedFrom: key }), userId, at);
+          saved[to] = version;
+          saved[key] = 0;
+          if (Object.values(map).includes(key)) writeAliases(Object.fromEntries(Object.entries(map).map(([a, sign]) => [a, sign === key ? to : sign])));
+        }
+        continue;
+      }
       const def = hasDef ? { ...(oldDef.note !== undefined && { note: oldDef.note }), ...pickDef(ch.def as Obj) } : oldDef;
       const nextTweaks = hasTweaks ? tweaks : oldTweaks;
       if (canon(def) === canon(oldDef) && canon(nextTweaks) === canon(oldTweaks)) {
@@ -183,6 +220,21 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
       if (!isObject(changes.limits)) throw new HttpError(400, 'Vigased "limits".');
       const old = readSetting(db, 'limits');
       setting('limits', changes.limits.base, buildLimits(changes.limits, old ? JSON.parse(old.value) : {}));
+    }
+    if (changes.aliases !== undefined) {
+      const sent = changes.aliases;
+      if (!isObject(sent) || !isObject(sent.data)) throw new HttpError(400, 'Vigased "aliases".');
+      const { map } = readAliases();
+      const next: Obj = {};
+      for (const [alias, sign] of Object.entries(sent.data)) {
+        if (typeof sign !== 'string') throw new HttpError(400, `Vigane alias "${alias}".`);
+        next[alias] = sign;
+        if (map[alias] === sign) continue; // (already saved: not checked again)
+        checkAlias(alias, sign);
+        if (!get.get(sign)) throw new HttpError(400, `Alias "${alias}" viitab märgile "${sign}", mida pole.`);
+        if (get.get(alias)) throw new HttpError(409, `Märk "${alias}" on juba olemas.`, { conflicts: [alias] });
+      }
+      setting('aliases', sent.base, next);
     }
     if (changes.orients !== undefined) {
       if (!isObject(changes.orients)) throw new HttpError(400, 'Vigased "orients".');
