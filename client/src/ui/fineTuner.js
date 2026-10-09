@@ -425,6 +425,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let playR = 0; // the playhead while playing
   let base = null; // the base-pose mode (basePose.js), made below
   const BLOCK_TITLES = { 'b-sign': 'Sõrmendid ja viiped', 'b-orient': 'Käe asend', 'b-fingers': 'Sõrmed', 'b-bone': 'Luu peenhäälestus', 'b-copy': 'Kopeeri teisest märgist' };
+  let boneKind = readLS(UI_KEY)?.boneKind === 'skin' ? 'skin' : 'joints'; // what the bone block lists: the joints' bones, or the skin's helper bones
   const foldedBlocks = new Set((readLS(UI_KEY)?.folded ?? []).filter((r) => r in BLOCK_TITLES)); // the cards folded into a strip
   let frameMode = false; // keyframes: the bone, shape and gizmo edits go to the selected point of the path (see syncFrame)
 
@@ -500,25 +501,36 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let lastEdit = { id: null };
   // A gizmo drag edits at the pointer's pace (up to 100 a second); the keeping of the working copy, the undo snapshot and the screen
   // are brought up to date once a frame instead (and for good when the gesture ends).
-  let soon = 0; // the animation frame that will do it
+  // The keeping (the whole tweak table is compared, written to localStorage, made into an undo snapshot) is heavy, so it waits until the
+  // editing pauses for a moment (a drag that goes on does not run it at all: it would hitch the dragging); the fields show the bone's
+  // numbers a few times a second meanwhile.
+  const SETTLE_MS = 160;
+  let soon = 0; // the timer that will do it
   let soonId = null;
+  let liveAt = 0; // when the fields were last brought up to date during a drag
   const flushBones = () => {
     if (!soon) return;
-    cancelAnimationFrame(soon);
+    clearTimeout(soon);
     soon = 0;
     bonesChanged(soonId);
     refreshBone();
   };
   const bonesChangedSoon = (id) => {
     soonId = id;
-    if (!soon) soon = requestAnimationFrame(flushBones);
+    clearTimeout(soon);
+    soon = setTimeout(flushBones, SETTLE_MS);
+    const t = performance.now();
+    if (t - liveAt > 90) {
+      liveAt = t;
+      refreshBone();
+    }
   };
   // the base-pose mode edits just as fast (a handle being dragged): the working copy and the undo snapshot follow once a frame
   let orientSoon = 0;
   let orientSoonId = null;
   const flushOrients = () => {
     if (!orientSoon) return;
-    cancelAnimationFrame(orientSoon);
+    clearTimeout(orientSoon);
     orientSoon = 0;
     orients.persist();
     saveFrames(); // (a base pose's bone tweaks go with it)
@@ -526,12 +538,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     commit(orientSoonId);
     updateStatus();
   };
-  /** An orient changed: show the sign with it at once; keep the rest for the next frame. */
+  /** An orient changed: show the sign with it at once; keep the rest until the editing pauses (see SETTLE_MS). */
   const orientsChangedSoon = (id) => {
     show(key);
     freeze(scrub);
     orientSoonId = id;
-    if (!orientSoon) orientSoon = requestAnimationFrame(flushOrients);
+    clearTimeout(orientSoon);
+    orientSoon = setTimeout(flushOrients, SETTLE_MS);
   };
   const endGesture = () => {
     flushBones();
@@ -1195,6 +1208,14 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const mirrorBox = input('checkbox', { checked: true });
   const linesBox = input('checkbox', { checked: true });
   const boneLabel = el('div', 'fd__note');
+  // what the list and the markers show: the joints (the bones that pose the body) or the skin (the helper bones that only shape the skin at
+  // one spot: the elbow's share bone, the twist bones; turning one does not turn a limb, it tunes the skin there)
+  const jointsKindBtn = el('button', '', 'Liigesed');
+  const skinKindBtn = el('button', '', 'Nahk');
+  jointsKindBtn.title = 'Liigeste luud: need liigutavad keha, käsi ja sõrmi';
+  skinKindBtn.title = 'Naha abiluud (nt küünarnuki ShareBone, Twist-luud): need ei liiguta jäset, vaid timmivad nahka selles kohas';
+  jointsKindBtn.addEventListener('click', () => setBoneKind('joints'));
+  skinKindBtn.addEventListener('click', () => setBoneKind('skin'));
   const bodyBtn = el('button', '', 'Keha');
   const faceBtn = el('button', '', 'Nägu');
   bodyBtn.title = 'Kogu luustik: käed, sõrmed, keha, nägu (luude markerid ja gizmo)';
@@ -1272,7 +1293,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const target = `CC_Base_${side}_${/Upperarm/i.test(e?.name) ? 'Upperarm' : 'Forearm'}`;
     const i = bones.findIndex((b) => b.name === target);
     if (i < 0) return;
-    if (!inGroup(bones[i])) {
+    setBoneKind('joints'); // (the joint's own bone is listed with the joints)
+    if (!listed(bones[i])) {
       groupSel.value = 'all';
       fillBones();
     }
@@ -1402,10 +1424,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     faceBtn.addEventListener('click', () => goTo(tweaks.shapes.length ? 'shapes' : 'face'));
     const quick = el('div', 'fd__buttons');
     quick.append(bodyBtn, faceBtn);
+    const kindRow = el('div', 'fd__buttons');
+    kindRow.append(jointsKindBtn, skinKindBtn);
     const finer = el('details');
     finer.append(el('summary', 'fd__sub', 'Täpsemad rühmad'), row(el('span', '', 'Rühm'), groupSel));
     blockBone.append(
       el('div', 'fd__h', 'Luu peenhäälestus'),
+      kindRow,
       quick,
       finer,
       pickRow,
@@ -1484,6 +1509,28 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // turning the elbow's helper moves the tip of the elbow, not the hand. They get no marker in the scene (the joint's own bone is
   // in the same place and easy to miss for them) and are picked from the list.
   const isHelper = (e) => !!e && !e.shape && /(Twist|Share)(Bone)?\d*$/i.test(e.name);
+  /**
+   * Whether the bone block lists a bone (list, markers, group buttons): "Liigesed" the joints' bones and shape keys of the chosen group,
+   * "Nahk" the skin's helper bones (the elbow's share bone, the twist bones ...) of the chosen group (an arm's: those of that side).
+   */
+  const listed = (e) => {
+    if (boneKind === 'joints') return inGroup(e) && !isHelper(e);
+    if (!isHelper(e)) return false;
+    const g = groupSel.value;
+    if (g === 'right') return /_R_/.test(e.name);
+    if (g === 'left') return /_L_/.test(e.name);
+    if (g === 'hands') return /_[LR]_/.test(e.name);
+    return g !== 'face' && g !== 'shapes'; // (the body, the whole skeleton)
+  };
+  function setBoneKind(next) {
+    if (next === boneKind) return;
+    boneKind = next;
+    selected = -1;
+    adjust.bone = null;
+    fillBones();
+    refreshBone();
+    saveUi();
+  }
   const locked = (e, axisIndex) => isTwist(e) && axisIndex !== 1;
   let selected = -1;
   const sel = () => (selected >= 0 ? items[selected] : null);
@@ -1491,7 +1538,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
 
   const fillBones = () => {
     boneSel.replaceChildren(new Option('–', ''));
-    items.forEach((e, i) => inGroup(e) && boneSel.add(new Option(e.name, String(i))));
+    items.forEach((e, i) => listed(e) && boneSel.add(new Option(e.name, String(i))));
   };
 
   /** The limit fields of the selected bone (not while a shape key is selected: it has no rotation). */
@@ -1562,13 +1609,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (aim) {
       const turned = bones.find((b) => b.name === aim.name);
       Object.assign(adjust, { bone: turned, until: Infinity });
-      writeBone(turned, { rot: aim.rot, pos: tweaks.get(tweaks.keyOf(turned.name, key), turned.name).pos }, editId(e)); // (the screen follows once a frame)
+      writeBone(turned, { rot: aim.rot, pos: tweaks.get(tweaks.keyOf(turned.name, key), turned.name).pos }, editId(e), eased(turned)); // (the screen follows once a frame)
       return;
     }
-    const t = tweaks.tweakFor(e.name, gizmoQ, gizmoP);
     const now = tweaks.get(editKey(), e.name);
+    const t = tweaks.tweakFor(e.name, gizmoQ, gizmoP, now.rot); // (the turn written nearest to the numbers it has: no leaps)
     Object.assign(adjust, { bone: e, until: Infinity });
-    writeBone(e, gizmo.mode === 'rotate' ? { rot: t.rot, pos: now.pos } : { rot: now.rot, pos: t.pos }, editId(e)); // (only what the gizmo is turning changes)
+    writeBone(e, gizmo.mode === 'rotate' ? { rot: t.rot, pos: now.pos } : { rot: now.rot, pos: t.pos }, editId(e), eased(e)); // (only what the gizmo is turning changes)
   });
   /** The gizmo is shown on the selected bone while the dock is open (a shape key has nothing to turn). */
   const attachGizmo = () => {
@@ -1615,6 +1662,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     gizmo.showX = gizmo.showZ = !twist;
     gizmo.showY = !twist || gizmo.mode === 'rotate';
     put(weight.field, val.w);
+    jointsKindBtn.classList.toggle('fd__on', boneKind === 'joints');
+    skinKindBtn.classList.toggle('fd__on', boneKind === 'skin');
     bodyBtn.classList.toggle('fd__on', groupSel.value === 'all');
     faceBtn.classList.toggle('fd__on', groupSel.value === 'shapes' || groupSel.value === 'face');
     modeRotBtn.classList.toggle('fd__on', gizmo.mode === 'rotate');
@@ -1637,13 +1686,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const helper = isHelper(e);
     helperBtn.hidden = !helper;
     gizmoHint.textContent = helper
-      ? 'Naha abiluu: selle pööramine kujundab ainult nahka selles kohas (nt küünarnuki otsa), see ei pööra kätt ega küünarvart. Käe suuna muutmiseks pööra liigese enda luud (Upperarm / Forearm). Abiluu kehtib kõigile märkidele ja peegeldub teisele käele, kui „Peegelda vastasküljele“ on sees.'
+      ? 'Nahk: see abiluu kujundab ainult nahka selles kohas (nt küünarnuki otsa), see ei pööra kätt ega küünarvart. Muudatus kehtib kõigile märkidele ja peegeldub teisele küljele, kui „Peegelda vastasküljele“ on sees. Käe suuna muutmiseks lülita „Liigesed“ peale ja pööra liigese enda luud (Upperarm / Forearm).'
       : aimName ? `Liigutamine pöörab luud ${aimName}, et valitud luu jääks külge. Nihke lahtrid nihutavad luud ennast.` : '';
     gizmoBone.innerHTML = e ? `<b>${e.name}</b>${frameActive() ? ` · keyframe ${selPoint + 1}` : ''}` : shapes ? 'Vali vorm' : 'Vali luu (nimekirjast või markerilt)';
-    boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : 'Vali luu nimekirjast või klõpsa markeril';
+    boneLabel.innerHTML = e ? `Valitud: <b>${e.name}</b>${note}` : shapes ? 'Vali vorm nimekirjast' : boneKind === 'skin' ? 'Vali naha abiluu nimekirjast või klõpsa markeril' : 'Vali luu nimekirjast või klõpsa markeril';
     markers.children.forEach((m, i) => {
       m.material = i === selected ? pickedMat : idleMat;
-      m.visible = inGroup(bones[i]) && !isHelper(bones[i]); // (the skin's helper bones are picked from the list: their marker sits at the joint and is easily hit by mistake)
+      m.visible = listed(bones[i]); // (the joints' bones or the skin's helper bones, as chosen: "Liigesed" / "Nahk")
     });
   };
   const selectBone = (i) => {
@@ -1665,7 +1714,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   focusBtn.addEventListener('click', () => {
     const shapes = groupSel.value === 'shapes';
     // shape keys have no bone of their own: look at the face instead
-    const target = sel()?.bone ?? bones.find((b) => (shapes ? b.group === 'face' : inGroup(b)))?.bone;
+    const target = sel()?.bone ?? bones.find((b) => (shapes ? b.group === 'face' : listed(b)))?.bone;
     if (!target) return;
     const wide = ['body', 'hands', 'all'].includes(groupSel.value); // (those keep the distance the camera has)
     const dist = groupSel.value === 'face' || shapes ? 0.3 : wide ? camera.position.distanceTo(controls.target) : 0.6;
@@ -1681,11 +1730,15 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const mirrored = (v) => v && ('w' in v ? { w: v.w } : { rot: [v.rot[0], -v.rot[1], -v.rot[2]], pos: [-v.pos[0], v.pos[1], v.pos[2]] });
   // a twist helper bone only turns about Y: the other turns and any move are dropped, whatever the gizmo or the fields say
   const twistOnly = (e, v) => (e && !e.shape && isTwist(e) ? { rot: [0, v.rot?.[1] ?? 0, 0], pos: [0, 0, 0] } : v);
-  const writeBone = (e, value, id) => {
+  // A bone dragged with the gizmo eases to where the pointer is (the pose follows it a little behind, which smooths the pointer's jitter) instead of
+  // jumping there; typed numbers and sliders jump. A bone with rotation limits is not eased: the limit's correction (see update) measures
+  // the pose that is shown and would fight a lagging one.
+  const eased = (e) => !e.shape && !boneLimits.get(e.name) && !fingerLimits?.jointOf(e.name);
+  const writeBone = (e, value, id, ease = false) => {
     value = twistOnly(e, value);
     holdAtFrame();
-    tweaks.set(tweaks.keyOf(e.name, key), e.name, value); // (e is not always the selected bone: the gizmo may turn its parent)
-    if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value));
+    tweaks.set(tweaks.keyOf(e.name, key), e.name, value, !ease); // (e is not always the selected bone: the gizmo may turn its parent)
+    if (mirrorBox.checked && e.mirrorName) tweaks.set(tweaks.keyOf(e.mirrorName, key), e.mirrorName, mirrored(value), !ease);
     bonesChangedSoon(id);
   };
   // the numbers typed in: the rotation or the position offset (the other one stays as it is)
@@ -1802,7 +1855,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   resetGroupBtn.addEventListener('click', () => {
     if (!key) return;
     if (groupSel.value === 'all' && !confirm('Nullin kogu luustiku seaded selle märgi jaoks (ja keha seaded, mis kehtivad alati)? Ctrl+Z võtab tagasi.')) return;
-    for (const e of items) if (inGroup(e)) tweaks.set(tweaks.keyOf(e.name, key), e.name, null);
+    for (const e of items) if (listed(e)) tweaks.set(tweaks.keyOf(e.name, key), e.name, null);
     bonesChanged();
     refreshBone();
   });
@@ -1816,7 +1869,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (!key) return;
     if (groupSel.value === 'all' && !confirm('Panen kogu luustiku mudeli GLB-faili puhkeasendisse (käed lähevad alla, ka keha seaded)? Ctrl+Z võtab tagasi.')) return;
     const id = `rest-group:${key}:${groupSel.value}`; // (one undo step)
-    for (const e of items) if (inGroup(e)) writeBone(e, tweaks.restTweak(e.name), id);
+    for (const e of items) if (listed(e)) writeBone(e, tweaks.restTweak(e.name), id);
     refreshBone();
   });
   copyJsonBtn.addEventListener('click', async () => {
@@ -1859,9 +1912,13 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const copyFrom = document.createElement('select');
   for (const l of letters) copyFrom.add(new Option(letterLabel(l), l));
   const copyScope = document.createElement('select');
-  copyScope.add(new Option('Kogu märk', 'all'));
-  copyScope.add(new Option('Valitud rühm', 'group'));
-  copyScope.add(new Option('Valitud luu / vorm', 'bone'));
+  // what a sign is made of: its hand definition (the fingers, the base pose, the thumb, the motion; they pose the hand) and its bone tweaks
+  // (on top of that). "Kogu märk" takes both, so the hand looks like the other sign's.
+  copyScope.add(new Option('Kogu märk (käsi ja luud)', 'sign'));
+  copyScope.add(new Option('Ainult käe määratlus (sõrmed, asend, liikumine)', 'def'));
+  copyScope.add(new Option('Ainult luude seaded (kogu märk)', 'all'));
+  copyScope.add(new Option('Luude seaded: valitud rühm', 'group'));
+  copyScope.add(new Option('Luude seaded: valitud luu / vorm', 'bone'));
   const copyApply = el('button', '', 'Kopeeri siia');
   const copyNote = el('div', 'fd__note');
   // one hand's pose onto the other (the same numbers, which pose the left hand as the mirror image) or the two swapped
@@ -1952,14 +2009,32 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const scope = copyScope.value;
     const e = sel();
     if (scope === 'bone' && !e) return void (copyNote.textContent = 'Vali kõigepealt luu või vorm.');
-    // (the mirror twin follows when the mirror box is ticked, as it does for the sliders)
-    const names =
-      scope === 'bone' ? [e.name, ...(mirrorBox.checked && e.mirrorName ? [e.mirrorName] : [])]
-      : items.filter((x) => scope === 'all' || inGroup(x)).map((x) => x.name);
-    const { copied, cleared } = tweaks.copy(from, to, names);
-    bonesChanged();
+    const act = `copy:${from}:${to}:${Date.now()}`; // the definition and the tweaks are one undo step
+    const withDef = scope === 'sign' || scope === 'def';
+    const boneScope = scope === 'sign' ? 'all' : scope === 'def' ? null : scope;
+    // the hand definition first (the left hand's bones are keyed by whether the sign has a left hand: asked for after that)
+    if (withDef) {
+      stopPlay(false);
+      defs.applyDef(to, defs.currentDef(from));
+      if (hand === 'L' && !sign()?.left) hand = 'R';
+      renderHand();
+      changed(act);
+    }
+    let copied = 0;
+    let cleared = 0;
+    if (boneScope) {
+      // (the mirror twin follows when the mirror box is ticked, as it does for the sliders)
+      const names =
+        boneScope === 'bone' ? [e.name, ...(mirrorBox.checked && e.mirrorName ? [e.mirrorName] : [])]
+        : items.filter((x) => boneScope === 'all' || inGroup(x)).map((x) => x.name);
+      ({ copied, cleared } = tweaks.copy(from, to, names));
+      if (scope === 'sign') tweaks.copyFrames(from, to); // (the keyframes ride on the path, which came with the definition)
+    }
+    bonesChanged(withDef ? act : undefined);
     refreshBone();
-    copyNote.textContent = copied || cleared ? `Kopeeritud ${letterLabel(from)} → ${letterLabel(to)}: ${copied} kirjet${cleared ? `, ${cleared} eemaldatud` : ''}.` : `${letterLabel(from)} ja ${letterLabel(to)} ei erine selles ulatuses (või pole siin märgipõhiseid kirjeid).`;
+    endGesture();
+    const parts = [withDef && 'käe määratlus', boneScope && (copied || cleared ? `${copied} luukirjet${cleared ? `, ${cleared} eemaldatud` : ''}` : null)].filter(Boolean);
+    copyNote.textContent = parts.length ? `Kopeeritud ${letterLabel(from)} → ${letterLabel(to)}: ${parts.join(', ')}.` : `${letterLabel(from)} ja ${letterLabel(to)} ei erine selles ulatuses (või pole siin märgipõhiseid kirjeid).`;
   });
 
   // ---------------------------------------------------------------- the bar: reset, load, save
@@ -2664,7 +2739,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let tlCollapsed = !!readLS(UI_KEY)?.tlCollapsed;
   let blocksCollapsed = !!readLS(UI_KEY)?.blocksCollapsed; // with the blocks hidden the dock is only as tall as its bar and timeline
   const shown = () => height - (tlCollapsed ? TL_TRACKS_H : 0); // the dock's height on screen
-  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed, folded: [...foldedBlocks], order: cardOrder(), gizmoMode: gizmo.mode, gizmoSpace: gizmo.space });
+  const saveUi = () => writeLS(UI_KEY, { open: isOpen, height, tlCollapsed, blocksCollapsed, folded: [...foldedBlocks], order: cardOrder(), boneKind, gizmoMode: gizmo.mode, gizmoSpace: gizmo.space });
   let height = clamp(readLS(UI_KEY)?.height ?? Math.min(500, Math.round(window.innerHeight * 0.58)), MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));
   const applyHeight = () => {
     height = clamp(height, MIN_H, Math.max(MIN_H, window.innerHeight * 0.85));

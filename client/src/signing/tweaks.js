@@ -29,6 +29,18 @@ const parseFrame = (key) => {
 };
 const smooth = (s) => s * s * (3 - 2 * s);
 
+/** The Euler XYZ triple (radians) of the turn x, y, z that is nearest to `prev`: the turn is also x + π, π - y, z + π, and each angle is 2π further round. */
+const unwrapEuler = (x, y, z, prev) => {
+  const wrap = (v, p) => v + 2 * Math.PI * Math.round((p - v) / (2 * Math.PI));
+  let best = null;
+  for (const [a, b, c] of [[x, y, z], [x + Math.PI, Math.PI - y, z + Math.PI]]) {
+    const t = [wrap(a, prev[0]), wrap(b, prev[1]), wrap(c, prev[2])];
+    const d = (t[0] - prev[0]) ** 2 + (t[1] - prev[1]) ** 2 + (t[2] - prev[2]) ** 2;
+    if (!best || d < best.d) best = { t, d };
+  }
+  return best.t;
+};
+
 // Base-pose tweaks: the base-pose editor (ui/basePose.js) can turn any bone and set any face shape for a named orient: the whole body.
 // They are added to the sign's own tweaks of those bones in every sign that holds that arm in the orient (an arm's bones, by that
 // arm's orient; the body, the face and the shapes, by the signing hand's), so a deformed elbow is mended once for all of
@@ -326,7 +338,8 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       if (!t && f && byName.has(name)) t = bucket(keyOf(byName.get(name), f[0]))?.[name];
       return { rot: [...(t?.rot ?? [0, 0, 0])], pos: [...(t?.pos ?? [0, 0, 0])], w: t?.w ?? 0 };
     },
-    set(key, name, value) {
+    /** `snap` (default): the bone jumps straight to the value; without it the value is only the target the pose then eases to (smoothing, see step). */
+    set(key, name, value, snap = true) {
       const e = byName.get(name);
       if (!e) return;
       // (a keyframe keeps a zero too: it then overrides the sign's own tweak with nothing. Only null takes the entry away again)
@@ -346,7 +359,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
         delete bucket(key)[name];
         prune(key);
       }
-      recompute(e.index); // jump straight there so sliders feel direct
+      recompute(snap ? e.index : -1); // jump straight there so sliders feel direct
     },
     // ---- keyframes
     /** The editor is changing keyframe `i` of sign `key` (all its tweaks go there, see keyOf); null: no keyframe. */
@@ -436,7 +449,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
      * @param worldP the wanted world position of the bone
      * @returns { rot, pos } degrees (Euler XYZ) and millimetres, rounded to one decimal; null for a shape key
      */
-    tweakFor(name, worldQ, worldP) {
+    tweakFor(name, worldQ, worldP, prevRot = null) {
       const e = byName.get(name);
       if (!e?.bone) return null;
       const parent = e.bone.parent;
@@ -445,10 +458,14 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       const local = parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(worldQ);
       const delta = e.base.q.clone().invert().multiply(local);
       const euler = new THREE.Euler().setFromQuaternion(delta, 'XYZ');
+      let [ex, ey, ez] = [euler.x, euler.y, euler.z];
+      // One turn has several Euler triples (the same turn written as x + 180°, 180° - y, z + 180°, or 360° further round): the one nearest to
+      // the bone's present numbers is taken, so that the numbers (and the limits that are measured in them) don't leap while it is dragged.
+      if (prevRot) [ex, ey, ez] = unwrapEuler(ex, ey, ez, [prevRot[0] * m * D2R, prevRot[1] * e.flip * m * D2R, prevRot[2] * e.flip * m * D2R]);
       const offset = parent.worldToLocal(worldP.clone()).sub(e.base.p).applyQuaternion(e.parentInv.clone().invert());
       const tenth = (x) => Math.round(x * 10) / 10 || 0; // (|| 0 turns -0 into 0)
       return {
-        rot: [euler.x, euler.y * e.flip, euler.z * e.flip].map((r) => tenth((r / D2R) / m)),
+        rot: [ex, ey * e.flip, ez * e.flip].map((r) => tenth((r / D2R) / m)),
         pos: offset.multiplyScalar((1000 * e.unit) / m).multiply(v.set(e.flip, 1, 1)).toArray().map(tenth),
       };
     },
@@ -487,7 +504,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       const to = worldTarget.clone().sub(pivot).applyQuaternion(guarded);
       if (from.lengthSq() < 1e-12 || to.lengthSq() < 1e-12) return null;
       const turn = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize());
-      return { name: parentName, rot: api.tweakFor(parentName, posed.premultiply(turn), pivot).rot };
+      return { name: parentName, rot: api.tweakFor(parentName, posed.premultiply(turn), pivot, [tgt[i], tgt[i + 1], tgt[i + 2]]).rot };
     },
     /**
      * Copy the tweaks of `names` from sign `from` to sign `to`, replacing what `to` had for them. Only entries that are
