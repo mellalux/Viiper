@@ -454,7 +454,75 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const sign = () => (key ? SIGNS[key] : null);
   // the named orient a hand is in when the sign names none (the standby pose has one per hand)
   const defaultDir = () => (key === STANDBY ? (hand === 'R' ? 'ready' : 'relaxed') : 'up');
-  const part = () => (hand === 'R' ? sign() : sign()?.left) ?? null;
+  const realPart = () => (hand === 'R' ? sign() : sign()?.left) ?? null;
+  // What the hand blocks edit: the sign's part of the hand, or in keyframe mode a view of it for the selected point (see frameView).
+  const part = () => (frameActive() ? frameView(realPart()) : realPart());
+
+  // ---- keyframes: the hand's own data (the fingers, the hand's pose) per point of the path
+  // In keyframe mode the blocks of the hand and the fingers work on a view of the sign's data: what they change goes to the selected
+  // point (tweaks.setFrameHand), the sign itself stays as it is. What a point does not change follows the sign.
+  const HAND_FIELDS = ['curl', 'spread', 'knuckle', 'thumb', 'dir', 'orient'];
+  const views = new Map(); // `${sign}@${point}` -> { s, key, point, local, proxy }: the edits not yet handed over to the keyframe
+  function frameView(s) {
+    if (!Array.isArray(s?.curl)) return s; // (a hand without finger data: its blocks only offer to give it some, and that is the sign's)
+    const id = `${key}@${selPoint}`;
+    let v = views.get(id);
+    if (v?.s === s) return v.proxy;
+    // (local: the values read or written; read: what each was when read, so that a change made in place - curl[2] = ... - shows; dirty: the fields assigned)
+    v = { s, key, point: selPoint, local: {}, read: {}, dirty: new Set() };
+    const own = () => tweaks.frameHand(v.key, v.point) ?? {};
+    v.proxy = new Proxy(s, {
+      get(t, f) {
+        if (!HAND_FIELDS.includes(f)) return t[f];
+        if (!(f in v.local)) {
+          const o = own();
+          let x = structuredClone(f in o ? o[f] : t[f]);
+          if (f === 'orient' && x && !Object.keys(x).length) x = undefined; // ({}: the keyframe has none of the sign's own changes)
+          v.local[f] = x;
+          v.read[f] = canon(x ?? null);
+        }
+        return v.local[f];
+      },
+      set(t, f, value) {
+        if (HAND_FIELDS.includes(f)) {
+          v.local[f] = value;
+          v.dirty.add(f);
+        } else t[f] = value;
+        return true;
+      },
+      deleteProperty(t, f) {
+        if (HAND_FIELDS.includes(f)) {
+          v.local[f] = undefined;
+          v.dirty.add(f);
+        } else delete t[f];
+        return true;
+      },
+    });
+    views.set(id, v);
+    return v.proxy;
+  }
+  /** What the blocks changed in the views becomes the keyframes' own hand data (the fields equal to the sign's own are no override). */
+  function commitFrameViews() {
+    let any = false;
+    for (const v of views.values()) {
+      const patch = { ...(tweaks.frameHand(v.key, v.point) ?? {}) };
+      let edited = false;
+      for (const f of HAND_FIELDS) {
+        if (!(f in v.local) || !(v.dirty.has(f) || canon(v.local[f] ?? null) !== v.read[f])) continue;
+        edited = true;
+        if (same(v.local[f], v.s[f])) delete patch[f];
+        else patch[f] = v.local[f] ?? {}; // (only the orient can be gone: {} says the keyframe has none of the sign's own changes)
+      }
+      v.local = {};
+      v.read = {};
+      v.dirty.clear();
+      if (!edited) continue;
+      holdAtFrame(); // (what is edited is what is shown: the playhead is on the point)
+      tweaks.setFrameHand(v.key, v.point, patch);
+      any = true;
+    }
+    if (any) saveTweaks();
+  }
   const letterLabel = (l) => (l === STANDBY ? 'Ooteasend' : l);
 
   // ---------------------------------------------------------------- the status line and the buttons in the bar
@@ -492,6 +560,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   /** A sign's definition changed (or its motion): store it, show it, update the marks. `id` names a continuous gesture (see commit). */
   function changed(id) {
     stopPlay(false);
+    commitFrameViews(); // (in keyframe mode the hand blocks' edits go to the selected point, not to the sign)
     recheck(key);
     defs.persist();
     show(key);
@@ -724,6 +793,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   collidersBox.addEventListener('change', () => onColliders(collidersBox.checked));
   // a new word sign: its name is what gets typed to show it; it starts as a flat hand, or as a copy of the sign being edited
   const newName = input('text', { placeholder: 'Üks täht (sõrmend, nt Å) või viipe nimi (nt KASS)…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
+  const newAlias = input('text', { placeholder: 'Alias (valikuline), nt 0 – teine kirjapilt, mis näitab sama viipe…', className: 'fd__search', maxLength: 40, autocomplete: 'off', spellcheck: false });
+  newAlias.title = 'Teine kirjapilt, millega sama viipe saab kätte. Üks täht või number (nt 0 viibele NULL) lisatakse sõrmendite nuppude hulka ja suu ütleb viipe sõna (null); pikem kirjapilt on tekstikasti sõna.';
   const newCopy = input('checkbox', { checked: false });
   const newBtn = el('button', '', '＋ Lisa sõrmend või viip');
   const delBtn = el('button', '', 'Kustuta see uus');
@@ -732,15 +803,21 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const newNote = el('div', 'fd__note');
   const newCopyRow = el('label', 'fd__row');
   newCopyRow.append(el('span', '', 'Alusta valitud märgi koopiast'), newCopy);
-  blockSign.append(el('div', 'fd__h', 'Sõrmendid ja viiped'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus sõrmend või viip'), newName, newCopyRow, newBtn, delBtn, newNote);
+  blockSign.append(el('div', 'fd__h', 'Sõrmendid ja viiped'), search, chipBox, standbyRow, guardsRow, collidersRow, el('div', 'fd__sub', 'Uus sõrmend või viip'), newName, newAlias, newCopyRow, newBtn, delBtn, newNote);
 
   function createSign() {
     const name = defs.normalizeName(newName.value);
     const problem = defs.checkName(name);
     newNote.classList.toggle('fd__warn', !!problem); // (a refused name is shown in orange, it was easy to miss)
     if (problem) return void (newNote.textContent = problem);
+    const alias = defs.normalizeName(newAlias.value);
+    const aliasProblem = alias ? defs.checkAlias(alias, name) : null;
+    if (aliasProblem) {
+      newNote.classList.add('fd__warn');
+      return void (newNote.textContent = aliasProblem);
+    }
     const from = newCopy.checked && key && key !== STANDBY ? key : null;
-    defs.addSign(name, from ? defs.currentDef(from) : undefined);
+    defs.addSign(name, from ? defs.currentDef(from) : undefined, alias ? [alias] : []);
     if (from) {
       tweaks.copy(from, name, items.map((x) => x.name)); // its bone tweaks come along
       tweaks.copyFrames(from, name); // ... and its keyframes (the path is the same)
@@ -753,6 +830,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     copyFrom.replaceChildren(...letters.map((l) => new Option(letterLabel(l), l)));
     copyFrom.value = copyWas;
     newName.value = '';
+    newAlias.value = '';
     search.value = '';
     saveTweaks();
     defs.persist();
@@ -761,7 +839,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     recheckAll();
     clearHistory(); // the older steps know nothing of this sign
     updateStatus();
-    newNote.textContent = `${isLetterName(name) ? 'Sõrmend' : 'Viip'} ${name} lisatud${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta lisab selle serverisse (nähtav kõigile).`;
+    newNote.textContent = `${isLetterName(name) ? 'Sõrmend' : 'Viip'} ${name} lisatud${alias ? ` (alias ${alias})` : ''}${from ? ` (${letterLabel(from)} koopiana)` : ''}. Määra selle käe asend, sõrmed ja liikumine; Salvesta lisab selle serverisse (nähtav kõigile).`;
   }
   function deleteSign() {
     const gone = key;
@@ -860,7 +938,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // ---------------------------------------------------------------- block: the hand's pose (orient)
   const twistEl = el('div', 'fd__note');
   function fillOrient() {
-    blockOrient.replaceChildren(el('div', 'fd__h', `Käe asend${key ? ` – ${hand === 'R' ? 'parem' : 'vasak'} käsi` : ''}`));
+    blockOrient.replaceChildren(el('div', 'fd__h', `Käe asend${key ? ` – ${hand === 'R' ? 'parem' : 'vasak'} käsi` : ''}${frameActive() ? ` · keyframe ${selPoint + 1}` : ''}`));
     const p = part();
     if (!p) {
       blockOrient.append(...noPartNote(true), twistEl);
@@ -999,7 +1077,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
 
   // ---------------------------------------------------------------- block: the fingers
   function fillFingers() {
-    blockFingers.replaceChildren(el('div', 'fd__h', 'Sõrmed'));
+    blockFingers.replaceChildren(el('div', 'fd__h', `Sõrmed${frameActive() ? ` · keyframe ${selPoint + 1}` : ''}`));
     const p = part();
     if (!p) {
       blockFingers.append(...noPartNote(false));
@@ -2130,7 +2208,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       // one request, saved all or nothing: every sign with the version it was edited from
       const signs = {};
       const entry = (k) => (signs[k] ??= defs.isNew(k) ? { create: true } : { base: versions[k] });
-      for (const k of signKeys) entry(k).def = defs.currentDef(k);
+      for (const k of signKeys) {
+        entry(k).def = defs.currentDef(k);
+        if (defs.isNew(k) && defs.aliasesOf(k).length) entry(k).aliases = defs.aliasesOf(k);
+      }
       for (const [k, data] of Object.entries(drafts)) if (k !== GLOBAL) entry(k).tweaks = data;
       const body = { signs };
       if (GLOBAL in drafts) body.global = { tweaks: drafts[GLOBAL], base: versions['*global'] };
@@ -2195,7 +2276,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   let lastDown = null; // the last press on the tracks' background, for the double click
   let plotW = 600;
 
-  const motion = () => part()?.motion ?? null;
+  const motion = () => realPart()?.motion ?? null;
   const shownR = () => (playing ? playR : scrub);
   const xOf = (r) => TL.gutter + r * plotW;
   const yMid = (c) => TL.ruler + c * TL.row + TL.row / 2;
@@ -2218,7 +2299,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // In frame mode every bone, shape and gizmo edit goes to the selected point ("keyframe N"): the whole skeleton, body and face. The
   // playhead then sits on that point, and a bone no frame says anything about keeps the sign's own tweak. Playing mixes the frames.
   function frameActive() {
-    return frameMode && isOpen && hand === 'R' && !!key && key !== STANDBY && !!motion() && !base?.boneEdit;
+    return frameMode && isOpen && hand === 'R' && !!key && key !== STANDBY && !!realPart()?.motion && !base?.boneEdit;
   }
   const frameTime = () => {
     const m = motion();
@@ -2234,6 +2315,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       stopPlay(false);
       freeze(scrub);
     }
+    // the hand and finger blocks show (and edit) the selected point's data in keyframe mode, the sign's own otherwise
+    fillOrient();
+    fillFingers();
+    ensureFolds();
     refreshBone();
     drawTimeline();
   }
@@ -2258,7 +2343,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     stopPlay(false);
     tweaks.setEditFrame(null);
     tlHead.replaceChildren();
-    const p = part();
+    const p = realPart();
     if (!p) {
       tlHead.append(el('b', '', 'Liikumine'), el('span', 'fd__note', !key ? 'Vali märk.' : 'Vasak käsi ei osale selles viipes.'));
       tlBody.replaceChildren();
@@ -2359,7 +2444,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     // keyframes: edit a whole-body pose for the selected point (see syncFrame)
     const frameBtn = el('button', frameMode ? 'fd__on' : '', '◆ Keyframe\'i keha');
     frameBtn.title =
-      'Keyframe\'i režiim: valitud punkti (kf) jaoks muudad kogu keha, luustikku ja nägu olemasolevate vahenditega (gizmo, liugurid, luu ja vormide valik). Muudatus jääb sellele punktile; esitusel liiguvad luud ja näovormid punktide vahel. Kehtib parema käe ajajoonele. Keyframe\'id jäävad ainult sinu brauserisse.';
+      'Keyframe\'i režiim: valitud punkti (keyframe\'i) jaoks muudad kogu keha, luustikku, nägu, sõrmi ja käe asendit olemasolevate vahenditega (gizmo, liugurid, plokid „Käe asend“ ja „Sõrmed“, luu ja vormide valik). Muudatus jääb sellele punktile; esimene muudatus kandub edasi järgmistele punktidele (lukustub), pärast seda on iga punkt iseseisev. Esitusel liiguvad luud, näovormid ja sõrmed punktide vahel. Kehtib parema käe ajajoonele. Keyframe\'id jäävad ainult sinu brauserisse.';
     frameBtn.disabled = hand !== 'R';
     frameBtn.addEventListener('click', () => {
       frameMode = !frameMode;
@@ -2375,7 +2460,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       refreshBone();
       drawTimeline();
     });
-    const frameClear = el('button', '', 'Tühjenda kf');
+    const frameClear = el('button', '', 'Tühjenda keyframe');
     frameClear.title = 'Valitud keyframe ei muuda midagi: keha järgib selles punktis märgi enda seadeid';
     frameClear.addEventListener('click', () => {
       const act = `frame-clear:${key}:${selPoint}`;
@@ -2598,7 +2683,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const RING_PLANES = { xy: [0, 1], xz: [0, 2], yz: [1, 2] };
   /** The hand's path becomes a circle (or several turns) in a plane; `o` = { radius, plane, turns, points, clockwise, centred, duration, smooth }. */
   function makeRing(o) {
-    const p = part();
+    const p = realPart();
     if (!p || !key || key === STANDBY) return;
     const [a, b] = RING_PLANES[o.plane] ?? RING_PLANES.xy;
     const n = clamp(Math.round(o.points), 4, 64); // points per turn
@@ -2622,6 +2707,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     // (the hand may have been placed in the first keyframe: that pose is what the ring starts from, so it becomes the sign's own before the frames go)
     framesFollow(() => {
       tweaks.bakeFrame(key, 0);
+      const first = tweaks.frameHand(key, 0); // (the first keyframe's fingers and hand pose likewise)
+      if (first) Object.assign(p, structuredClone(first));
       tweaks.dropFrames(key);
     });
     selPoint = 0;
@@ -2877,6 +2964,10 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     lines.visible = hot.visible = false;
     attachGizmo();
     freeze(null);
+    if (collidersBox.checked) {
+      collidersBox.checked = false; // (the colliders are an editing aid: they go with the dock)
+      onColliders(false);
+    }
     saveUi();
     onLayout(0);
   }

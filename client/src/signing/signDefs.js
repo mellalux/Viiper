@@ -29,16 +29,34 @@ export function checkName(name) {
 }
 /** A sign that is not in the files yet (added in the editor and not saved). */
 export const isNew = (key) => !baseline.has(key);
-/** Add a sign; `def` is its definition (a flat hand, thumb at rest, pointing up when left out). A letter is not a typed word form. */
-export function addSign(key, def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' }) {
+/** Why an alias can't be used for the new sign `name`, or null when it can (an alias is another typed form of the sign: "0" for NULL). */
+export function checkAlias(alias, name) {
+  if (!SIGN_NAME.test(alias) && !isLetterName(alias)) return 'Alias: üks täht või number (sõrmendite hulka) või 2–40 tähte, numbrit, tühikut või sidekriipsu.';
+  if (alias === name) return 'Alias on sama mis märgi nimi.';
+  if (Object.hasOwn(SIGNS, alias) || Object.hasOwn(WORD_FORMS, alias)) return `Alias „${alias}“ on juba kasutusel.`;
+  return null;
+}
+const newAliases = new Map(); // a new sign -> its aliases (not saved yet)
+/** The aliases of a sign that is not saved yet (they go to the server with it). */
+export const aliasesOf = (key) => newAliases.get(key) ?? [];
+/**
+ * Add a sign; `def` is its definition (a flat hand, thumb at rest, pointing up when left out). A letter is not a typed word form.
+ * `aliases`: other typed forms that show it (they become typed forms at once; a one-character one is a button of the fingerspelling after a reload).
+ */
+export function addSign(key, def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' }, aliases = []) {
   SIGNS[key] = { spread: [0, 0, 0, 0], knuckle: [0, 0, 0, 0], ...pick(def) };
   if (!isLetterName(key)) WORD_FORMS[key] = key;
+  const ok = aliases.filter((a) => !checkAlias(a, key));
+  if (ok.length) newAliases.set(key, ok);
+  for (const a of ok) WORD_FORMS[a] = key;
 }
 /** Take a sign that is not in the files yet away again. */
 export function removeSign(key) {
   if (!isNew(key)) return;
   delete SIGNS[key];
   delete WORD_FORMS[key];
+  for (const a of newAliases.get(key) ?? []) delete WORD_FORMS[a];
+  newAliases.delete(key);
 }
 
 /** Keys of the signs that can be edited: letters first, then words (the standby pose has a definition only once it is given finger data). */
@@ -71,7 +89,7 @@ export const resetSign = (key) => applyDef(key, baselineDef(key));
 export function persist() {
   try {
     const drafts = {};
-    for (const key of changedKeys()) drafts[key] = { base: fingerprint(canon(baseline.get(key) ?? {})), def: currentDef(key), ...(isNew(key) && { new: true }) };
+    for (const key of changedKeys()) drafts[key] = { base: fingerprint(canon(baseline.get(key) ?? {})), def: currentDef(key), ...(isNew(key) && { new: true, ...(aliasesOf(key).length && { aliases: aliasesOf(key) }) }) };
     if (Object.keys(drafts).length) localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
     else localStorage.removeItem(STORAGE_KEY);
   } catch {}
@@ -84,7 +102,7 @@ export function restoreDrafts() {
     drafts = JSON.parse(localStorage.getItem(STORAGE_KEY));
   } catch {}
   for (const [key, d] of Object.entries(drafts ?? {})) {
-    if (d?.new && !SIGNS[key] && !baseline.has(key) && !checkName(key) && d.def) addSign(key, d.def); // a sign added and not saved yet
+    if (d?.new && !SIGNS[key] && !baseline.has(key) && !checkName(key) && d.def) addSign(key, d.def, d.aliases ?? []); // a sign added and not saved yet
     else if (SIGNS[key] && d?.base === fingerprint(canon(baseline.get(key) ?? {}))) applyDef(key, d.def);
     else console.info(`Dropped a stale working copy of sign ${key} (its file has changed since it was made).`);
   }

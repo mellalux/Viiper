@@ -214,6 +214,20 @@ describe('saving signs', () => {
     assert.equal((await editor.put('/api/data', { signs: { 'väike': { create: true, def } } })).status, 400);
   });
 
+  it('gives a new word sign an alias (a digit that shows it), refuses a taken or bad alias', async () => {
+    const editor = await login('editor', 'another long password');
+    const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };
+    assert.equal((await editor.put('/api/data', { signs: { NULL: { create: true, def, aliases: ['0'] } } })).status, 200);
+    const data = (await editor.get('/api/data')).json;
+    assert.equal(data.words.aliases['0'], 'NULL');
+    assert.ok(data.versions['*aliases'] > 0);
+    assert.equal((await editor.put('/api/data', { signs: { 'TÜHI': { create: true, def, aliases: ['0'] } } })).status, 409); // taken alias
+    assert.ok(!('TÜHI' in (await editor.get('/api/data')).json.words.signs), 'nothing saved when the alias is refused');
+    assert.equal((await editor.put('/api/data', { signs: { 'TÜHI': { create: true, def, aliases: ['%'] } } })).status, 400); // a bad alias
+    assert.equal((await editor.put('/api/data', { signs: { 'TÜHI': { create: true, def, aliases: ['TÜHI'] } } })).status, 400); // its own name
+    assert.equal((await editor.put('/api/data', { signs: { '0': { create: true, def } } })).status, 409); // an alias is a name taken
+  });
+
   it('creates a letter (one upper-case letter) in the fingerspelling, not among the words', async () => {
     const editor = await login('editor', 'another long password');
     const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up' };

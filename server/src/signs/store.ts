@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { HttpError } from '../auth/users.js';
-import { SIGN_FIELDS, buildLimits, canon, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isLetterName, isObject, type Json, type Obj } from './validate.js';
+import { SIGN_FIELDS, buildLimits, canon, checkAlias, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isLetterName, isObject, type Json, type Obj } from './validate.js';
 
 // The signs are kept as documents: one row per sign holding its definition and its bone tweaks as JSON. The API hands them out in
 // the shape of the client's data files (fingerspelling.json, words.json, limits.json), so the client reads either.
@@ -68,7 +68,8 @@ export function readData(db: Db, { notes }: { notes: boolean }): SignData {
 
 /** What the editor sends: the signs it changed, each with the version it started from, and optionally the global tweaks and the limits. */
 export interface Changes {
-  signs?: Record<string, { create?: boolean; base?: number | null; def?: unknown; tweaks?: unknown }>;
+  /** `aliases` (only with `create`): other typed forms the new sign gets, e.g. "0" for NULL (a one-character alias joins the fingerspelling's buttons). */
+  signs?: Record<string, { create?: boolean; base?: number | null; def?: unknown; tweaks?: unknown; aliases?: unknown }>;
   global?: { tweaks: unknown; base: number };
   limits?: { base: number; bones: unknown; finger?: unknown };
   /** Every orient as it is now (replaces the saved ones). */
@@ -121,9 +122,27 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
         const kind = isLetterName(key) ? 'letter' : 'word';
         const last = db.prepare('SELECT COALESCE(MAX(position), -1) AS p FROM signs WHERE kind = ?').get(kind) as { p: number };
         const def = hasDef ? pickDef(ch.def as Obj) : {};
+        // aliases: other typed forms of the sign, added to the aliases setting (additive, so no version to start from); each must be free
+        if (ch.aliases !== undefined && !Array.isArray(ch.aliases)) throw new HttpError(400, `Vigased aliased märgile "${key}".`);
+        const newAliases = ((ch.aliases as unknown[] | undefined) ?? []).map((a) => checkAlias(a, key));
+        let all: Obj = {};
+        if (newAliases.length) {
+          all = readSetting(db, 'aliases') ? JSON.parse(readSetting(db, 'aliases')!.value) : {};
+          for (const a of newAliases) {
+            if (a in all || get.get(a) || newAliases.indexOf(a) !== newAliases.lastIndexOf(a)) throw new HttpError(409, `Märk "${a}" on juba olemas.`, { conflicts: [a] });
+          }
+        }
         insert.run(key, kind, last.p + 1, JSON.stringify(def), tweaks ? JSON.stringify(tweaks) : null, at, userId);
         log.run(key, 1, JSON.stringify({ def, tweaks }), userId, at);
         saved[key] = 1;
+        if (newAliases.length) {
+          for (const a of newAliases) all[a] = key;
+          const cur = readSetting(db, 'aliases');
+          const version = (cur?.version ?? 0) + 1;
+          putSetting.run('aliases', JSON.stringify(all), version, at, userId);
+          log.run('*aliases', version, JSON.stringify(all), userId, at);
+          saved['*aliases'] = version;
+        }
         continue;
       }
 

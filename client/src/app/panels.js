@@ -11,7 +11,8 @@ import { say, press, release, holdMs } from './signing.js';
 export function createPanels() {
   // the letters with a mouth shape (shared.json) and the letters the editors have added to the fingerspelling since (one-letter signs: their
   // mouth stays at rest, see signing.js); in the alphabet's order (Estonian)
-  const extra = Object.keys(fingerspelling.signs).filter((k) => [...k].length === 1 && !(k in LETTERS));
+  // (a one-character alias of a word sign, such as "0" for NULL, is a button too: it shows that sign and the mouth says its word)
+  const extra = [...new Set([...Object.keys(fingerspelling.signs), ...Object.keys(WORD_FORMS)])].filter((k) => [...k].length === 1 && !(k in LETTERS));
   const alphabet = extra.length ? [...Object.keys(LETTERS), ...extra].sort(new Intl.Collator('et').compare) : Object.keys(LETTERS);
 
   // Alphabet: hold a letter key (or press a panel button) to show that mouth shape; release for rest.

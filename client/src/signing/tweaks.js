@@ -21,7 +21,15 @@ const GLOBAL = '*';
 // frame before and the one after the playhead, eased as the path is (smoothstep); a bone a frame says nothing about has the sign's own tweak there
 // (the one the sign has without keyframes), so a frame only holds what it changes. A frame's bucket is addressed like a sign, as "SIGN@point"
 // (a sign's name has no @). Frames are a working copy in the editor's browser only (the server knows nothing of them).
+//
+// A frame also holds the signing hand's own data under HAND: overrides of the sign's curl, spread, knuckle, thumb, dir and orient for that point
+// (hands.js mixes them along the path like the bones), so the fingers and the hand's pose are kept per keyframe too.
+//
+// Locking: the first time a bone (or a hand field) is set in any keyframe of a sign, it is carried on to every later keyframe, so a pose
+// made in one keyframe holds in the next ones. From then on every keyframe has its own value: editing one never moves the others.
 const FRAME_AT = '@';
+const HAND = '#hand';
+const HAND_FIELDS = ['curl', 'spread', 'knuckle', 'thumb', 'dir', 'orient'];
 const frameKey = (sign, i) => `${sign}${FRAME_AT}${i}`;
 const parseFrame = (key) => {
   const at = typeof key === 'string' ? key.lastIndexOf(FRAME_AT) : -1;
@@ -79,6 +87,18 @@ function cleanFrame(e) {
   if (rot) out.rot = rot;
   if (pos) out.pos = pos;
   if (Number.isFinite(e.w)) out.w = Number(e.w);
+  return Object.keys(out).length ? out : null;
+}
+
+/** A keyframe's hand data: only the known fields that are well formed; null when nothing is left. */
+function cleanHand(h) {
+  if (!h || typeof h !== 'object') return null;
+  const out = {};
+  for (const f of ['curl', 'spread', 'knuckle']) {
+    if (Array.isArray(h[f]) && h[f].length === 4 && h[f].every(Number.isFinite)) out[f] = h[f].map(Number);
+  }
+  for (const f of ['thumb', 'dir']) if (typeof h[f] === 'string' && h[f]) out[f] = h[f];
+  if (h.orient && typeof h.orient === 'object' && !Array.isArray(h.orient)) out.orient = structuredClone(h.orient);
   return Object.keys(out).length ? out : null;
 }
 
@@ -177,6 +197,48 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     if (data.frames[f[0]] && !Object.keys(data.frames[f[0]]).length) delete data.frames[f[0]];
   };
   let editFrame = null; // { key, i }: the editor is changing this keyframe (see api.keyOf)
+  let carryFrame = null; // the keyframe the editor was last pointed at (a different one ends the carrying below)
+  let carry = null; // { sign, from, units: Map(unit -> [points]) }: the edits made in keyframe `from` that were carried on to the later keyframes
+
+  // A unit is what a keyframe holds one value of: a bone / shape name, or ".field" for one of the hand's fields (HAND_FIELDS).
+  const unitGet = (b, unit) => (unit[0] === '.' ? b?.[HAND]?.[unit.slice(1)] : b?.[unit]);
+  const unitPut = (sign, p, unit, value) => {
+    const fr = data.frames[sign];
+    if (value === undefined) {
+      const b = fr?.[p];
+      if (!b) return;
+      if (unit[0] !== '.') delete b[unit];
+      else if (b[HAND]) {
+        delete b[HAND][unit.slice(1)];
+        if (!Object.keys(b[HAND]).length) delete b[HAND];
+      }
+    } else {
+      const b = ((data.frames[sign] ??= {})[p] ??= {});
+      if (unit[0] === '.') (b[HAND] ??= {})[unit.slice(1)] = structuredClone(value);
+      else b[unit] = structuredClone(value);
+    }
+    prune(frameKey(sign, p));
+  };
+  /**
+   * A unit of keyframe `i` is being set to `value` (undefined: taken away) by `write`. The first time any keyframe of the sign gets the unit, the
+   * keyframes after it get the same value (the pose made here holds in the next ones, instead of snapping back to the sign's own); while the
+   * edit goes on in this keyframe (a slider being dragged) they follow it. Once the editor moves to another keyframe, this ends: every keyframe
+   * then has its own value, and editing one leaves the others where they are.
+   */
+  const carried = (sign, i, unit, value, write) => {
+    const n = SIGNS[sign]?.motion?.path.length ?? 0;
+    if (!carry || carry.sign !== sign || carry.from !== i) carry = { sign, from: i, units: new Map() };
+    const first = !Object.values(data.frames[sign] ?? {}).some((b) => unitGet(b, unit) !== undefined);
+    write();
+    if (first && value !== undefined && !carry.units.has(unit)) {
+      const pts = [];
+      for (let p = i + 1; p < n; p++) {
+        unitPut(sign, p, unit, value);
+        pts.push(p);
+      }
+      carry.units.set(unit, pts);
+    } else for (const p of carry.units.get(unit) ?? []) unitPut(sign, p, unit, value);
+  };
   let editOrient = null; // { name, side }: ... the arm bones of this base pose
   let progress = 0; // how far along its path the signing hand is (0..1); selects the keyframes in between which the pose is mixed
   let switching = false; // the sign changed this frame: its first pose is eased to, not jumped to
@@ -354,17 +416,45 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
           w: Number.isFinite(value?.w) ? Math.round((value.w - (own?.w ?? 0)) * 1000) / 1000 : undefined,
         });
       } else entry = parseFrame(key) ? cleanFrame(value) : clean(value);
-      if (entry) bucket(key, true)[name] = entry;
-      else if (bucket(key)) {
-        delete bucket(key)[name];
-        prune(key);
-      }
+      const write = () => {
+        if (entry) bucket(key, true)[name] = entry;
+        else if (bucket(key)) {
+          delete bucket(key)[name];
+          prune(key);
+        }
+      };
+      const f = parseFrame(key);
+      if (f) carried(f[0], f[1], name, entry ?? undefined, write);
+      else write();
       recompute(snap ? e.index : -1); // jump straight there so sliders feel direct
     },
     // ---- keyframes
     /** The editor is changing keyframe `i` of sign `key` (all its tweaks go there, see keyOf); null: no keyframe. */
     setEditFrame(key, i = 0) {
       editFrame = key == null ? null : { key, i };
+      // (pointing the editor at another keyframe ends the carrying of the edits made in the last one; letting go of the keyframe does not)
+      if (key != null && (carryFrame?.key !== key || carryFrame.i !== i)) {
+        carry = null;
+        carryFrame = { key, i };
+      }
+    },
+    /** The signing hand's own data in keyframe `i` ({ curl, spread, knuckle, thumb, dir, orient }, only the fields the keyframe changes), or null. */
+    frameHand: (key, i) => data.frames[key]?.[i]?.[HAND] ?? null,
+    /** The hand data of every keyframe of the sign that has any, { point: data } (hands.js mixes them along the path); null when none. */
+    handFrames(key) {
+      let out = null;
+      for (const [i, b] of Object.entries(data.frames[key] ?? {})) if (b[HAND]) (out ??= {})[i] = b[HAND];
+      return out;
+    },
+    /** Keyframe `i` of the sign changes the hand's fields as `patch` says (the fields it leaves out follow the sign again). */
+    setFrameHand(key, i, patch) {
+      const next = cleanHand(patch) ?? {};
+      const prev = data.frames[key]?.[i]?.[HAND] ?? {};
+      for (const f of HAND_FIELDS) {
+        if (JSON.stringify(next[f]) === JSON.stringify(prev[f])) continue;
+        carried(key, i, `.${f}`, next[f], () => unitPut(key, i, `.${f}`, next[f]));
+      }
+      recompute(-2);
     },
     /** How far along its path the signing hand is, 0..1: the keyframes around it are what the pose is mixed from (call each frame). */
     setProgress(r) {
@@ -404,7 +494,9 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
         const own = bucket(keyOf(e, key))?.[name];
         made[name] = cleanFrame(mixEntry(before?.[name] ?? own, after?.[name] ?? own, s));
       }
+      if (before?.[HAND]) made[HAND] = structuredClone(before[HAND]); // (the hand's data are not mixed: the new point starts as the one before it)
       if (Object.keys(made).length) moved[at] = made;
+      carry = null;
       recompute(-2);
     },
     /** A path point was removed: its frame goes, the later ones move down. */
@@ -415,10 +507,12 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       for (const [i, b] of Object.entries(fr)) if (+i !== at) moved[+i > at ? +i - 1 : +i] = b;
       if (Object.keys(moved).length) data.frames[key] = moved;
       else delete data.frames[key];
+      carry = null;
       recompute(-2);
     },
     /** Frame `to` becomes a copy of frame `from` (the bones `from` holds; what `to` held is gone). */
     copyFrame(key, from, to) {
+      carry = null;
       const src = data.frames[key]?.[from];
       if (src && from !== to) (data.frames[key] ??= {})[to] = structuredClone(src);
       else if (!src) {
@@ -444,6 +538,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     },
     /** Frame `i` holds nothing again (it then follows the sign's own tweaks). */
     clearFrame(key, i) {
+      carry = null;
       delete data.frames[key]?.[i];
       prune(frameKey(key, i));
       recompute(-2);
@@ -454,6 +549,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
       else delete data.frames[to];
     },
     dropFrames(key) {
+      carry = null;
       delete data.frames[key];
       recompute(-2);
     },
@@ -551,6 +647,7 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
     load(raw) {
       data = { global: {}, keys: {}, frames: {}, poses: {} };
       foreign = { global: {}, keys: {} };
+      carry = null;
       const take = (src, known, other) => {
         for (const [name, e] of Object.entries(src && typeof src === 'object' ? src : {})) {
           const c = clean(e);
@@ -570,6 +667,11 @@ export function createTweaks(root, { weight = () => 1, smoothing = 18, morphs = 
         for (const [i, tw] of Object.entries(points && typeof points === 'object' ? points : {})) {
           const known = {};
           for (const [name, e] of Object.entries(tw && typeof tw === 'object' ? tw : {})) {
+            if (name === HAND) {
+              const h = cleanHand(e);
+              if (h) known[HAND] = h;
+              continue;
+            }
             const c = cleanFrame(e);
             if (c && byName.has(name)) known[name] = c;
           }

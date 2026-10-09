@@ -490,8 +490,88 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     });
   };
 
+  // --- the pose data of a sign (what tgt holds), and keyframes' own hand data mixed into it ---
+  /** The pose data of `sign` with a keyframe's `patch` (tweaks.js) laid over it. */
+  const paramsOf = (sign, key, own, patch) => {
+    const s = patch ? { ...sign, ...patch } : sign;
+    // The standby sign may define its own orient (`dir`, `orient`); without, each hand waits in its named one. The left hand
+    // waiting in a sign of its own has no say of its own in the standby sign's `dir` (that one is the right hand's).
+    const o = preview ? orientOf(preview) : key !== STANDBY ? orientOf(s.dir, s.orient) : side === 'L' && !own ? orientOf(STANDBY_DIR.L) : orientOf(s.dir ?? STANDBY_DIR[side], s.orient);
+    return {
+      curl: [...s.curl],
+      spread: s.spread.map((x) => x * axisSign[rig.spreadAxis] * rig.spreadSign),
+      thumb: rig.thumbPoses[s.thumb].joints.flat().map((x, i) => x * axisSign[i % 3]), // (read live: the editor changes the poses)
+      knuckle: [...s.knuckle],
+      qHand: handQuat(o),
+      reach: new THREE.Vector3(...o.reach),
+      maxBend: o.maxBend ?? HAND_CONFIG.maxWristBend,
+      pole: new THREE.Vector3(...(o.pole ?? mx(HAND_CONFIG.pole))),
+    };
+  };
+  const aim = (p) => {
+    tgt.curl = p.curl;
+    tgt.spread = p.spread;
+    tgt.thumb = p.thumb;
+    tgt.knuckle = p.knuckle;
+    tgt.qHand = p.qHand.clone();
+    tgt.reach.copy(p.reach);
+    tgt.maxBend = p.maxBend;
+    tgt.pole.copy(p.pole);
+  };
+  const lerpList = (a, b, s) => a.map((x, i) => x + (b[i] - x) * s);
+  /** The hand takes the pose it is aimed at at once (no easing). */
+  const snapCurrent = () => {
+    cur.curl = [...tgt.curl];
+    cur.knuckle = [...tgt.knuckle];
+    cur.spread = [...tgt.spread];
+    cur.thumb = [...tgt.thumb];
+    cur.qHand.copy(tgt.qHand);
+    cur.reach.copy(tgt.reach);
+    cur.pole.copy(tgt.pole);
+    cur.maxBend = tgt.maxBend;
+  };
+  let frameSource = null; // (sign key) => { point: hand data } | null: the keyframes' own hand data (tweaks.js handFrames)
+  let frames = null; // { sign, key, own, base }: the sign being shown can have keyframes with hand data
+  /**
+   * With keyframes holding hand data (the fingers, the hand's pose), the hand is aimed at the mix of the points before and after its place on
+   * the path, eased as the path is; a point that holds nothing has the sign's own data. Returns whether anything was mixed.
+   */
+  const mixFrames = () => {
+    const def = motion.def;
+    if (!frames || !frameSource || !def || def.path.length < 2) return false;
+    const patches = frameSource(frames.key);
+    if (!patches) {
+      aim(frames.base);
+      return false;
+    }
+    const times = pathTimes(def.path, def.times);
+    const r = api.progress;
+    let i = times.findIndex((t, k) => k < times.length - 1 && r <= times[k + 1]);
+    if (i < 0) i = times.length - 2;
+    const u = Math.min(Math.max((r - times[i]) / (times[i + 1] - times[i] || 1), 0), 1);
+    const s = def.smooth ? u : smooth(u);
+    const at = (p) => (patches[p] ? paramsOf(frames.sign, frames.key, frames.own, patches[p]) : frames.base);
+    const a = at(i);
+    const b = at(i + 1);
+    aim({
+      curl: lerpList(a.curl, b.curl, s),
+      spread: lerpList(a.spread, b.spread, s),
+      thumb: lerpList(a.thumb, b.thumb, s),
+      knuckle: lerpList(a.knuckle, b.knuckle, s),
+      qHand: a.qHand.clone().slerp(b.qHand, s),
+      reach: a.reach.clone().lerp(b.reach, s),
+      maxBend: a.maxBend + (b.maxBend - a.maxBend) * s,
+      pole: a.pole.clone().lerp(b.pole, s),
+    });
+    return true;
+  };
+
   const api = {
     boneList,
+    /** The keyframes' own hand data: (sign key) => { point: data } or null (tweaks.js handFrames); the right hand mixes them along the path. */
+    set frameSource(fn) {
+      frameSource = fn;
+    },
     /** The pose being shown (a letter or STANDBY), or null when the arm is lowered. */
     get key() {
       return tgt.tw > 0 ? letter : null;
@@ -516,6 +596,7 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       motion.def = own?.motion ?? null; // a pressed letter with a path draws it from the start
       motion.t = 0;
       motion.from = [...motion.off];
+      frames = null;
       const sign = own || SIGNS[key];
       // A sign without finger data is undefined: the hand stays as the model has it (w = 0) and only the hand-tuned
       // offsets of that sign show, which is how a sign gets defined from scratch.
@@ -525,17 +606,11 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       if (!sign) return;
       letter = key;
       if (!defined) return;
-      // The standby sign may define its own orient (`dir`, `orient`); without, each hand waits in its named one. The left hand
-      // waiting in a sign of its own has no say of its own in the standby sign's `dir` (that one is the right hand's).
-      const o = preview ? orientOf(preview) : key !== STANDBY ? orientOf(sign.dir, sign.orient) : side === 'L' && !own ? orientOf(STANDBY_DIR.L) : orientOf(sign.dir ?? STANDBY_DIR[side], sign.orient);
-      tgt.curl = [...sign.curl];
-      tgt.spread = sign.spread.map((s) => s * axisSign[rig.spreadAxis] * rig.spreadSign);
-      tgt.thumb = rig.thumbPoses[sign.thumb].joints.flat().map((v, i) => v * axisSign[i % 3]); // (read live: the editor changes the poses)
-      tgt.knuckle = [...sign.knuckle];
-      tgt.qHand = handQuat(o);
-      tgt.reach.set(...o.reach);
-      tgt.maxBend = o.maxBend ?? HAND_CONFIG.maxWristBend;
-      tgt.pole.set(...(o.pole ?? mx(HAND_CONFIG.pole)));
+      const base = paramsOf(sign, key, own, null);
+      aim(base);
+      // keyframes (tweaks.js) may give points of the right hand's path hand data of their own: mixed along the path, see mixFrames
+      frames = side === 'R' && own && key !== STANDBY && !preview && own.motion ? { sign, key, own, base } : null;
+      mixFrames();
     },
     /** A small push forward and back, for a letter repeated right after itself. Does nothing in standby or with the arm lowered. */
     bump() {
@@ -550,18 +625,12 @@ export function createHands(root, side = 'R', { body = null } = {}) {
       this.setSign(letter);
       cur.w = tgt.w;
       cur.tw = tgt.tw;
-      cur.curl = [...tgt.curl];
-      cur.knuckle = [...tgt.knuckle];
-      cur.spread = [...tgt.spread];
-      cur.thumb = [...tgt.thumb];
-      cur.qHand.copy(tgt.qHand);
-      cur.reach.copy(tgt.reach);
-      cur.pole.copy(tgt.pole);
-      cur.maxBend = tgt.maxBend;
+      snapCurrent();
       pose();
     },
     update(dt) {
       const k = 1 - Math.exp(-HAND_CONFIG.smoothing * dt);
+      if (mixFrames() && !(dt > 0)) snapCurrent(); // (a held frame, dt = 0: the pose of this place on the path at once)
       cur.w += (tgt.w - cur.w) * k;
       cur.tw += (tgt.tw - cur.tw) * k;
       for (let i = 0; i < 4; i++) cur.knuckle[i] += (tgt.knuckle[i] - cur.knuckle[i]) * k;

@@ -26,6 +26,13 @@ export function checkSignName(name: unknown): string {
   return name;
 }
 
+/** An alias (another typed form of a sign: a letter or digit that shows a word sign, or a word / phrase) follows the rules of a sign's name. */
+export function checkAlias(alias: unknown, sign: string): string {
+  if (typeof alias !== 'string' || !(SIGN_NAME.test(alias) || LETTER_NAME.test(alias)) || alias !== alias.toLocaleUpperCase('et')) return bad(`Sobimatu aliase nimi "${String(alias)}".`);
+  if (alias === sign) return bad(`Alias "${alias}" on märgi enda nimi.`);
+  return alias;
+}
+
 /** A sign's definition (the fields in SIGN_FIELDS); `left` holds the same fields for the other hand. */
 export function checkDef(def: unknown, isLeft = false): asserts def is Obj {
   if (!isObject(def)) return bad('Märgi definitsioon peab olema objekt.');

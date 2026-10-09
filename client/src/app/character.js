@@ -50,6 +50,7 @@ export function createCharacter(gltf, { scene, camera }) {
   }
   c.hands = createHands(root, 'R', { body: c.body });
   c.handsL = createHands(root, 'L', { body: c.body });
+  if (c.hands) c.hands.frameSource = (sign) => c.tweaks.handFrames(sign); // keyframes may give the fingers and the hand's pose per point of the path
   const hands = { R: c.hands, L: c.handsL };
   if (c.handHits && c.hands && c.handsL) {
     c.handGuard = createHandGuard({ hits: c.handHits, hands, body: c.body }); // keeps the two hands and forearms out of each other
