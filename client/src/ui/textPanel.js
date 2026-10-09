@@ -1,4 +1,5 @@
 import { makeDraggable } from './draggable.js';
+import { ICONS } from './topbar.js';
 import { fold } from '../util.js';
 
 // Floating, draggable box with a text field. Every letter typed becomes a chip in the list below (the signs still to be
@@ -219,5 +220,5 @@ export function createTextPanel(letters, { words = {}, holdMs = () => HOLD_MS, o
   makeDraggable(panel, panel.querySelector('.panel__bar'), STORAGE_KEY, () => [
     16,
     (window.innerHeight - panel.offsetHeight) / 2,
-  ]);
+  ], { svg: ICONS.text, label: 'Tekst' });
 }

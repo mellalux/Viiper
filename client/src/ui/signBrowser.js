@@ -1,4 +1,5 @@
 import { makeDraggable } from './draggable.js';
+import { topbar } from './topbar.js';
 import { fold } from '../util.js';
 
 // Sign viewer: a button at the top opens a floating, draggable window (no backdrop, so the character stays visible) with a
@@ -174,7 +175,8 @@ export function createSignBrowser(signs, { aliases = {}, alphabet, holdMs, onPre
   });
 
   render();
-  document.body.append(openButton, box);
+  topbar().appendChild(openButton);
+  document.body.appendChild(box);
   // placed while visible (a hidden panel has no size to keep on screen), then hidden
   makeDraggable(box, box.querySelector('.sign-box__bar'), STORAGE_KEY, () => [window.innerWidth - box.offsetWidth - 16, 64]);
   box.hidden = true;

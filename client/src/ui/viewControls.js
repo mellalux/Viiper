@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import { makeDraggable } from './draggable.js';
+import { ICONS } from './topbar.js';
 
 // "Vaade" panel (draggable by its title bar like the others): zoom +/-/reset, and camera presets (front, back, sides,
 // top, three-quarter) that swing the camera around the current orbit target at the current distance.
@@ -39,7 +40,7 @@ export function createViewControls({ camera, controls, home }) {
       </div>
     </div>`;
   document.body.appendChild(box);
-  makeDraggable(box, box.querySelector('.panel__bar'), POS_KEY, () => [16, 16]);
+  makeDraggable(box, box.querySelector('.panel__bar'), POS_KEY, () => [16, 16], { svg: ICONS.eye, label: 'Vaade' });
 
   const zoom = (factor) => {
     const offset = camera.position.clone().sub(controls.target);

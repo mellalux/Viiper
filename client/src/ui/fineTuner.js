@@ -7,6 +7,7 @@ import { api, ApiError } from '../auth.js';
 import { versions } from '../data/store.js';
 import { askLogin } from './account.js';
 import { makeDraggable } from './draggable.js';
+import { ICONS, iconButton, topbar } from './topbar.js';
 import { canon, fingerprint, fold } from '../util.js';
 import { STANDBY, SIGNS, ORIENT, THUMB_POSES, HAND_CONFIG, MOTION_LEAD, pathTimes, tracePoint } from '../signing/hands.js';
 import { GROUPS, tweaksFromSigns } from '../signing/tweaks.js';
@@ -61,12 +62,7 @@ const CHANNELS = [
 const TL = { gutter: 84, right: 12, ruler: 20, row: 21 };
 
 const css = `
-.fd-launch {
-  position: fixed; z-index: 10; top: 58px; right: 16px; padding: 7px 14px; border-radius: 10px; cursor: pointer;
-  font: 600 13px system-ui, sans-serif; color: #e8e8ec; background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); backdrop-filter: blur(8px);
-}
-.fd-launch:hover { background: #38383f; }
+.topbar-icon.fd-launch { order: 3; color: #e8e8ec; } /* a button of the top row (topbar.js) */
 .fd-launch[hidden] { display: none; }
 body.fd-open .letter-panel { display: none; } /* the dock has its own sign list; the bottom of the screen is the dock's */
 
@@ -356,7 +352,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   style.textContent = css;
   document.head.appendChild(style);
 
-  const launch = el('button', 'fd-launch', 'Peenhäälestus');
+  const launch = iconButton(ICONS.gear, 'Peenhäälestus');
+  launch.classList.add('fd-launch');
   const dock = el('div', 'fd');
   dock.hidden = true;
   dock.innerHTML = `
@@ -388,7 +385,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       </div>
       <div data-role="tl-body"></div>
     </div>`;
-  document.body.append(launch, dock);
+  topbar().appendChild(launch);
+  document.body.appendChild(dock);
   const $ = (role) => dock.querySelector(`[data-role="${role}"]`);
   // typing in the fields must not reach the letter shortcuts
   dock.addEventListener('keydown', (e) => e.stopPropagation());

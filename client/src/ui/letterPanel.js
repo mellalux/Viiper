@@ -1,4 +1,5 @@
 import { makeDraggable } from './draggable.js';
+import { ICONS } from './topbar.js';
 
 // Floating, draggable box of letter buttons. Drag it by the title bar; the position is remembered.
 const STORAGE_KEY = 'viiper.letterPanel';
@@ -35,7 +36,7 @@ export function createLetterPanel(letters, { onPress, onRelease }) {
   makeDraggable(panel, panel.querySelector('.panel__bar'), STORAGE_KEY, () => [
     (window.innerWidth - panel.offsetWidth) / 2,
     window.innerHeight - panel.offsetHeight - 16,
-  ]);
+  ], { svg: ICONS.grid, label: 'Sõrmendid' });
 
   return {
     /** Highlight one letter (or none). */

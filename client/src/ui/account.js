@@ -1,15 +1,19 @@
 import { ApiError, api, currentUser, login, logout } from '../auth.js';
+import { topbar } from './topbar.js';
 
 // The account button (top right) and its dialogs: sign in, change the password and, for admins, manage the accounts.
 // The page is public; an account only unlocks the sign editor. Accounts are made by an admin (no self-registration).
 
 const css = `
-.account { position: fixed; z-index: 11; top: 16px; right: 16px; font: 13px system-ui, sans-serif; color: #e8e8ec; }
+.account { position: relative; order: 4; font: 13px system-ui, sans-serif; color: #e8e8ec; }
 .account__btn, .acc button {
   padding: 7px 14px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 600; color: #e8e8ec;
   background: rgba(24, 24, 28, 0.88); border: 1px solid rgba(255, 255, 255, 0.14); backdrop-filter: blur(8px);
 }
 .account__btn { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.account__btn--icon { padding: 7px 10px; }
+.account__btn--user { display: flex; align-items: center; gap: 6px; }
+.account__role { font-weight: 400; color: #9a9aa5; }
 .account__btn:hover, .acc button:hover { background: #38383f; }
 .account__menu {
   position: absolute; top: calc(100% + 6px); right: 0; min-width: 190px; display: grid; gap: 2px; padding: 6px; border-radius: 10px;
@@ -41,6 +45,14 @@ const css = `
 .acc-dialog button:hover { background: #38383f; }
 .acc-dialog button[data-role="ok"] { background: #2f9e6e; border-color: #5fd0a0; }
 .acc-dialog button:disabled { opacity: 0.5; cursor: default; }
+.acc-about { display: grid; gap: 10px; line-height: 1.5; }
+.acc-about p, .acc-about ul, .acc-about dl { margin: 0; }
+.acc-about ul { padding-left: 18px; display: grid; gap: 4px; }
+.acc-about__note { color: #9a9aa5; }
+.acc-about dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
+.acc-about dt { color: #9a9aa5; }
+.acc-about dd { margin: 0; }
+.acc-about kbd { padding: 1px 6px; border-radius: 4px; font: inherit; font-size: 11px; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.18); }
 .acc-users { width: 100%; border-collapse: collapse; }
 .acc-users th { text-align: left; color: #9a9aa5; font-weight: 400; padding: 2px 6px; }
 .acc-users td { padding: 4px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
@@ -61,7 +73,7 @@ function addStyle() {
   document.head.appendChild(style);
 }
 
-function h(tag, props = {}, ...children) {
+export function h(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
     if (k === 'class') node.className = v;
@@ -73,7 +85,7 @@ function h(tag, props = {}, ...children) {
 }
 
 /** A modal dialog; resolves to whatever `close(value)` is given (null when dismissed). `build(close)` returns the dialog's content. */
-function modal(title, build, { wide = false } = {}) {
+export function modal(title, build, { wide = false } = {}) {
   addStyle();
   if (document.querySelector('.acc-dialog')) return Promise.resolve(null); // one at a time
   return new Promise((resolve) => {
@@ -266,14 +278,19 @@ function manageUsers() {
   );
 }
 
-/** The button at the top right: "Logi sisse" for a visitor, the user's menu for a signed-in one. A change of state reloads the page. */
+const USER_ICON =
+  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>';
+
+/** The button at the top right: a user icon ("Logi sisse") for a visitor, the user's menu for a signed-in one. A change of state reloads the page. */
 export function createAccountMenu() {
   addStyle();
   const user = currentUser();
   const root = h('div', { class: 'account acc' });
-  document.body.appendChild(root);
+  topbar().appendChild(root);
   if (!user) {
-    root.append(h('button', { class: 'account__btn', type: 'button', onclick: async () => (await askLogin()) && location.reload() }, 'Logi sisse'));
+    const loginBtn = h('button', { class: 'account__btn account__btn--icon', type: 'button', title: 'Logi sisse', 'aria-label': 'Logi sisse', onclick: async () => (await askLogin()) && location.reload() });
+    loginBtn.innerHTML = USER_ICON;
+    root.append(loginBtn);
     return root;
   }
   const menu = h(
@@ -285,7 +302,9 @@ export function createAccountMenu() {
     user.role === 'admin' ? h('button', { type: 'button', onclick: () => ((menu.hidden = true), showLog()) }, 'Tegevuslogi') : null,
     h('button', { type: 'button', onclick: async () => (await logout(), location.reload()) }, 'Logi välja'),
   );
-  const btn = h('button', { class: 'account__btn', type: 'button', 'aria-haspopup': 'menu', onclick: () => (menu.hidden = !menu.hidden) }, `${user.username} ▾`);
+  const btn = h('button', { class: 'account__btn account__btn--user', type: 'button', 'aria-haspopup': 'menu', onclick: () => (menu.hidden = !menu.hidden) });
+  btn.innerHTML = USER_ICON;
+  btn.append(h('span', {}, user.username.charAt(0).toUpperCase() + user.username.slice(1)), h('span', { class: 'account__role' }, `(${user.role === 'admin' ? 'Admin' : 'Toimetaja'})`), ' ▾');
   root.append(btn, menu);
   document.addEventListener('pointerdown', (e) => !root.contains(e.target) && (menu.hidden = true));
   return root;

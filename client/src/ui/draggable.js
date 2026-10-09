@@ -1,10 +1,12 @@
 // Makes a floating panel (class `panel`; its title bar is `panel__bar` with a `panel__title` and a `panel__grip`, the look is in panels.css)
 // draggable by its title bar and remembers where it was left. The bar also gets a button that
 // collapses the panel to just the bar (remembered too; a double click on the bar does the same); the bar must be the panel's first child.
+// With `toggleIcon` the panel can also be closed and reopened from an icon in the top row (see topbar.js).
 // `defaultPosition` is called once (after the panel is in the DOM) when nothing is saved yet.
 import './panels.css';
+import { iconButton, topbar } from './topbar.js';
 
-export function makeDraggable(panel, bar, storageKey, defaultPosition) {
+export function makeDraggable(panel, bar, storageKey, defaultPosition, toggleIcon = null) {
   // the visual size, so a panel scaled with a CSS transform (origin top left) still stays on screen
   const clamp = (x, y) => {
     const { width, height } = panel.getBoundingClientRect();
@@ -49,6 +51,33 @@ export function makeDraggable(panel, bar, storageKey, defaultPosition) {
     } catch {}
   };
   toggle.addEventListener('click', flip);
+  // `toggleIcon` ({ svg, label }): the panel can be closed (✕ in the bar); an icon in the top row then brings it back (remembered too)
+  if (toggleIcon) {
+    const openKey = `${storageKey}.open`;
+    const close = document.createElement('button');
+    close.className = 'panel-close';
+    close.title = 'Sulge';
+    close.textContent = '✕';
+    bar.appendChild(close);
+    const icon = iconButton(toggleIcon.svg, toggleIcon.label);
+    topbar().appendChild(icon);
+    const setOpen = (on, save = true) => {
+      panel.hidden = !on;
+      icon.classList.toggle('is-on', on);
+      if (on) place(panel.offsetLeft, panel.offsetTop); // it may have been closed on a larger screen
+      if (!save) return;
+      try {
+        localStorage.setItem(openKey, on ? '1' : '0');
+      } catch {}
+    };
+    let open = false; // closed until the visitor opens it
+    try {
+      open = localStorage.getItem(openKey) === '1';
+    } catch {}
+    setOpen(open, false);
+    icon.addEventListener('click', () => setOpen(panel.hidden));
+    close.addEventListener('click', () => setOpen(false));
+  }
   bar.addEventListener('dblclick', (e) => {
     if (e.target.closest('button')) return;
     getSelection()?.removeAllRanges(); // the double click selects the word under the cursor
