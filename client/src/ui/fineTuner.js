@@ -80,6 +80,8 @@ body.fd-open .letter-panel { display: none; } /* the dock has its own sign list;
 .fd-gizmo__body { display: grid; gap: 8px; padding: 10px 12px 12px; }
 .fd-gizmo button, .fd-gizmo input[type=number] { font: inherit; color: inherit; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
 .fd-gizmo select { font: inherit; color: inherit; min-width: 0; padding: 3px 6px; background: #2c2c33; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; }
+.fd-gizmo button.fd__ibtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.fd-gizmo button.fd__ibtn svg { flex: none; }
 .fd-gizmo button { padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .fd-gizmo button:hover:not(:disabled) { background: #38383f; }
 .fd-gizmo button.fd__on { background: #2f9e6e; border-color: #5fd0a0; color: #fff; }
@@ -198,6 +200,28 @@ const el = (tag, className, text) => {
   if (className) e.className = className;
   if (text !== undefined) e.textContent = text;
   return e;
+};
+// small line icons (24 x 24, drawn in the text colour) for the gizmo's buttons
+const GIZMO_ICONS = {
+  rotate: 'M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5', // a circular arrow
+  move: 'M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3', // arrows in four directions
+  local: 'M12 13L5.5 18M12 13V4M12 13l7 4M5.5 18l1-3.5M5.5 18l3.5.5M12 4l-2 3M12 4l2 3M19 17l-3.5.5M19 17l-1.5-3', // axes tilted with the bone
+  world: 'M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18M3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18', // a globe
+};
+const gizmoIcon = (name) => {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  for (const [k, v] of Object.entries({ viewBox: '0 0 24 24', width: 16, height: 16, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })) svg.setAttribute(k, v);
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', GIZMO_ICONS[name]);
+  svg.appendChild(path);
+  return svg;
+};
+/** A button with an icon and its text (set again only when it changed: the gizmo's buttons are refreshed a lot). */
+const setIconButton = (button, name, label) => {
+  if (button.dataset.icon === name + label) return;
+  button.dataset.icon = name + label;
+  button.replaceChildren(gizmoIcon(name), el('span', '', label));
 };
 const input = (type, props = {}) => Object.assign(document.createElement('input'), { type }, props);
 const round = (v, step) => (step >= 1 ? Math.round(v) : Math.round(v * 100) / 100);
@@ -1220,9 +1244,12 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   faceBtn.title = 'Näo vormid (liugurid); kui mudelil vorme pole, näo luud';
   const boneTitle = el('span', '', 'Luu');
   // the gizmo's mode and space, and the tweak's numbers: rotation (degrees) and position offset (millimetres) per axis, or a shape key's weight
-  const modeRotBtn = el('button', '', 'Pööra');
-  const modeMoveBtn = el('button', '', 'Liiguta');
-  const spaceBtn = el('button', '');
+  const modeRotBtn = el('button', 'fd__ibtn');
+  const modeMoveBtn = el('button', 'fd__ibtn');
+  const spaceBtn = el('button', 'fd__ibtn');
+  setIconButton(modeRotBtn, 'rotate', 'Pööra');
+  setIconButton(modeMoveBtn, 'move', 'Liiguta');
+  setIconButton(spaceBtn, 'local', 'Luu telgedes');
   modeRotBtn.title = 'Gizmo pöörab luud (hiirega rõnga otsast)';
   modeMoveBtn.title = 'Gizmo liigutab luud (hiirega noole otsast); nihe salvestatakse millimeetrites';
   const gizmoRow = el('div', 'fd__buttons');
@@ -1314,6 +1341,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   // While it is open the bone gizmo and markers are put away, and the collision guards are off (they would push the hand away from the
   // handles); they come back as they were.
   let guardsWere = true;
+  let gizmoWas = null; // where the gizmo panel was before it made room for the base-pose panel
   base = createBasePose({
     scene, camera, controls, dom, tweaks, handOf,
     getKey: () => key,
@@ -1347,6 +1375,18 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       selected = -1;
       markers.visible = isOpen && on;
       gizmoPanel.hidden = !isOpen || !on;
+      // The two panels start in the same corner: with the bone tools up the gizmo panel goes beside the base-pose panel, not under it
+      // (and back where it was when they are put away).
+      if (on && !gizmoWas) {
+        gizmoWas = { left: gizmoPanel.style.left, top: gizmoPanel.style.top };
+        const bp = base.panelEl;
+        gizmoPanel.style.left = `${Math.max(0, bp.offsetLeft - 330 - 12)}px`;
+        gizmoPanel.style.top = `${bp.offsetTop}px`;
+      } else if (!on && gizmoWas) {
+        gizmoPanel.style.left = gizmoWas.left;
+        gizmoPanel.style.top = gizmoWas.top;
+        gizmoWas = null;
+      }
       lines.visible = hot.visible = isOpen && on && linesBox.checked;
       if (on) {
         groupSel.value = side === 'R' ? 'right' : 'left';
@@ -1666,7 +1706,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     faceBtn.classList.toggle('fd__on', groupSel.value === 'shapes' || groupSel.value === 'face');
     modeRotBtn.classList.toggle('fd__on', gizmo.mode === 'rotate');
     modeMoveBtn.classList.toggle('fd__on', gizmo.mode === 'translate');
-    spaceBtn.textContent = gizmo.space === 'local' ? 'Luu telgedes' : 'Maailma telgedes';
+    setIconButton(spaceBtn, gizmo.space === 'local' ? 'local' : 'world', gizmo.space === 'local' ? 'Luu telgedes' : 'Maailma telgedes');
     spaceBtn.title = 'Gizmo teljed: luu enda telgedes või maailma telgedes (vahetamiseks klõpsa)';
     modeRotBtn.disabled = modeMoveBtn.disabled = spaceBtn.disabled = !usable || !e.bone;
     attachGizmo();

@@ -448,6 +448,10 @@ export function createBasePose({ scene, camera, controls, dom, tweaks, handOf, g
     get active() {
       return active;
     },
+    /** The panel's element (the dock puts its own gizmo panel beside it while the bone tools are up, not under it). */
+    get panelEl() {
+      return panel;
+    },
     /** The mode is open and the handles (not the bone tools) are what is edited: the dock puts its own bone gizmo and markers away. */
     get handles() {
       return active && !boneEdit;

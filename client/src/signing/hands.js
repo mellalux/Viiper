@@ -358,9 +358,43 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     }
     return depth;
   };
+  // Where the wrist last was with the hand clear of the body, and which way round the elbow was turned last: a hand that runs into the body
+  // stops there (it is taken back along the way it came) instead of being thrown out the nearest way, which is the other side of the trunk
+  // once the wrist is past the middle of it; the elbow keeps turning the way it did.
+  let safeWrist = null;
+  let swingPref = 1;
+  const STOP_MAX = 0.3; // metres: a wrist further than that from the last clear place has been moved by something else (another sign): pushed out, not taken back
+  const armBones = [upperArm, foreArm, hand];
+  const takeArm = () => armBones.map((b) => b.quaternion.clone());
+  const putArm = (qs) => {
+    armBones.forEach((b, i) => b.quaternion.copy(qs[i]));
+    upperArm.updateWorldMatrix(true, true);
+  };
   const avoidBody = () => {
-    if (!body || cur.tw < 0.05) return;
+    if (!body || cur.tw < 0.05) {
+      safeWrist = null;
+      return;
+    }
     const strength = Math.min(cur.tw, 1);
+    // 0) the hand has run into the body: stop at the first place along the way back where it is clear (found by halving)
+    upperArm.updateWorldMatrix(true, true);
+    if (!handPush()) (safeWrist ??= new THREE.Vector3()).copy(wp(hand));
+    else if (safeWrist && strength > 0.5 && wp(hand).distanceTo(safeWrist) < STOP_MAX) {
+      const here = wp(hand);
+      const qs = takeArm();
+      let lo = 0; // (in the body)
+      let hi = 1; // (clear: where it was)
+      for (let k = 0; k < 7; k++) {
+        const mid = (lo + hi) / 2;
+        putArm(qs);
+        reachWrist(here.clone().lerp(safeWrist, mid));
+        upperArm.updateWorldMatrix(true, true);
+        if (handPush()) lo = mid;
+        else hi = mid;
+      }
+      putArm(qs);
+      reachWrist(here.clone().lerp(safeWrist, hi));
+    }
     // 1) the hand: move the wrist (and with it the palm and fingers, which keep their orientation) out of the body
     const moved = new THREE.Vector3();
     for (let i = 0; i < 3; i++) {
@@ -381,12 +415,15 @@ export function createHands(root, side = 'R', { body = null } = {}) {
     if (elbowDepth(shoulder, elbow, wrist, 0) < 1e-4) return;
     let best = { swing: 0, depth: Infinity };
     for (let k = 1; k <= 12 && best.depth > 1e-4; k++) {
-      for (const swing of [k * SWING_STEP, -k * SWING_STEP]) {
+      for (const swing of [swingPref * k * SWING_STEP, -swingPref * k * SWING_STEP]) { // (the way it turned last first: no flipping to the other side)
         const depth = elbowDepth(shoulder, elbow, wrist, swing);
         if (depth < best.depth) best = { swing, depth };
       }
     }
-    if (best.swing) reachWrist(wrist, { swing: best.swing * strength });
+    if (best.swing) {
+      swingPref = Math.sign(best.swing);
+      reachWrist(wrist, { swing: best.swing * strength });
+    }
   };
 
   const handQuat = (orient) => {
@@ -472,6 +509,8 @@ export function createHands(root, side = 'R', { body = null } = {}) {
      */
     setSign(l) {
       requested = l;
+      safeWrist = null; // (a new sign: the hand is somewhere else, the last clear place means nothing)
+      swingPref = 1;
       const own = side === 'L' ? SIGNS[l]?.left && { ...LEFT_DEFAULTS, ...SIGNS[l].left } : SIGNS[l];
       const key = own ? l : standby ? STANDBY : null;
       motion.def = own?.motion ?? null; // a pressed letter with a path draws it from the start
