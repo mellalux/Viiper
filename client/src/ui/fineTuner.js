@@ -2600,7 +2600,6 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   function makeRing(o) {
     const p = part();
     if (!p || !key || key === STANDBY) return;
-    if (hand === 'R' && tweaks.frameSigns().includes(key) && !confirm('Ring asendab tee punktid, nii et selle viipe keyframe\'id kustutatakse (need on seotud punktidega). Esimese keyframe\'i käe, näo ja luude asend jääb märgi enda asendiks ja ring algab sellest. Jätkan?')) return;
     const [a, b] = RING_PLANES[o.plane] ?? RING_PLANES.xy;
     const n = clamp(Math.round(o.points), 4, 64); // points per turn
     const total = Math.max(1, Math.round(o.turns * n));
@@ -2684,7 +2683,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
         row('Kestus (s)', f.duration, 'Terve ringi aeg sekundites'),
         row('Sile liikumine', f.smooth),
         buttons,
-        el('div', 'fd__note', 'Ring asendab selle käe liikumistee punktid (muud kanalid jäävad nulli). Punkte saab hiljem ajajoonel muuta.'),
+        el('div', 'fd__note', 'Ring asendab selle käe liikumistee punktid (muud kanalid jäävad nulli); punkte saab hiljem ajajoonel muuta. Viipe keyframe\'id kustuvad (need on seotud punktidega), aga esimese keyframe\'i asend jääb märgi enda asendiks ja ring algab sellest. Ctrl+Z võtab kõik tagasi.'),
       );
       box.appendChild(body);
       box.hidden = true;
