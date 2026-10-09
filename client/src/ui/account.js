@@ -48,6 +48,9 @@ const css = `
 .acc-about { display: grid; gap: 10px; line-height: 1.5; }
 .acc-about p, .acc-about ul, .acc-about dl { margin: 0; }
 .acc-about ul { padding-left: 18px; display: grid; gap: 4px; }
+.acc-about__head { display: grid; justify-items: center; gap: 4px; font-size: 18px; }
+.acc-about__head img { border-radius: 14px; margin-bottom: 4px; }
+.acc-about__head .acc-about__note { font-size: 12px; }
 .acc-about__note { color: #9a9aa5; }
 .acc-about dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; }
 .acc-about dt { color: #9a9aa5; }
