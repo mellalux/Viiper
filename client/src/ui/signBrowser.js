@@ -51,7 +51,7 @@ export function createSignBrowser(signs, { aliases = {}, alphabet, holdMs, onPre
 
   const collator = new Intl.Collator('et');
   const sorted = [...signs].sort(collator.compare);
-  alphabet = [...alphabet].sort(collator.compare);
+  alphabet = alphabet.filter((l) => /\p{L}/u.test(l)).sort(collator.compare); // (the strip is letters only: no 0-9)
   // (the search ignores accents and case, so "aitah" finds AITÄH; Õ, Ä, Ö, Ü, Š and Ž count as their own letters only in the strip)
   const aliasesOf = new Map(sorted.map((s) => [s, Object.keys(aliases).filter((a) => aliases[a] === s && a !== s)]));
   const haystack = new Map(sorted.map((s) => [s, fold([s, ...aliasesOf.get(s)].join('\n'))]));

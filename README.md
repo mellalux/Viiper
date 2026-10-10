@@ -200,7 +200,7 @@ client/                 the frontend (Vite, three.js)
       letterPanel.js      letter buttons
       textPanel.js        text box: typed text is signed letter by letter or word by word, with suggestions
       viewControls.js     camera panel
-      signBrowser.js      sign viewer: search, alphabetical list, A-Z strip, repeat checkbox (opening the fine-tuning window stops the repeat and closes it)
+      signBrowser.js      sign viewer: search, alphabetical list, A-Z strip (letters only, no digits), repeat checkbox (opening the fine-tuning window stops the repeat and closes it)
       splash.js           the loading screen's progress bar (its markup is in index.html)
       account.js          the account button: sign in, change password, manage accounts (admin)
       fineTuner.js        fine-tuning window: sign search, hand pose, fingers, bones, motion timeline, save
