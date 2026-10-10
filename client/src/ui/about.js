@@ -33,9 +33,20 @@ function showAbout() {
   );
 }
 
+// shown once on a first visit; where localStorage is unavailable it comes up on every load rather than never
+const SEEN_KEY = 'viiper.aboutSeen';
+function firstVisit() {
+  try {
+    if (localStorage.getItem(SEEN_KEY)) return false;
+    localStorage.setItem(SEEN_KEY, '1');
+  } catch {}
+  return true;
+}
+
 export function createAboutButton() {
   const btn = iconButton(ICONS.info, 'Rakenduse info');
   btn.classList.add('about-open');
   btn.addEventListener('click', showAbout);
   topbar().appendChild(btn);
+  if (firstVisit()) showAbout();
 }

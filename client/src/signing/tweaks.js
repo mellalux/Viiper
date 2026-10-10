@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { fingerspelling, words } from '../data/store.js';
+import { fingerspelling, words, frames as savedFrames, poses as savedPoses } from '../data/store.js';
 import { STANDBY, SIGNS, pathTimes, hermite } from './hands.js';
 import { detectRig } from '../character/rigs.js';
 
@@ -102,11 +102,17 @@ function cleanHand(h) {
   return Object.keys(out).length ? out : null;
 }
 
-/** Tweaks as stored in fingerspelling.json. */
+/** Tweaks as stored in fingerspelling.json, plus the keyframes and base-pose bones the server holds (the keyframes of a sign whose path has other points now are left out). */
 export function tweaksFromSigns() {
   const keys = {};
-  for (const [letter, sign] of Object.entries({ ...fingerspelling.signs, ...words.signs })) if (sign.tweaks) keys[letter] = sign.tweaks;
-  return { global: fingerspelling.global ?? {}, keys };
+  const all = { ...fingerspelling.signs, ...words.signs };
+  for (const [letter, sign] of Object.entries(all)) if (sign.tweaks) keys[letter] = sign.tweaks;
+  const frames = {};
+  for (const [sign, f] of Object.entries(savedFrames)) {
+    if (all[sign]?.motion?.path.length === f.n) frames[sign] = f.points;
+    else console.info(`Dropped the keyframes of ${sign} (its path has other points now).`);
+  }
+  return { global: fingerspelling.global ?? {}, keys, frames, poses: savedPoses };
 }
 
 /**

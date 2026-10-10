@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { HttpError } from '../auth/users.js';
-import { SIGN_FIELDS, buildLimits, canon, checkAlias, checkDef, checkOrients, checkSignName, checkThumbPoses, checkTweaks, isLetterName, isObject, type Json, type Obj } from './validate.js';
+import { SIGN_FIELDS, buildLimits, canon, checkAlias, checkDef, checkFrames, checkOrients, checkPoses, checkSignName, checkThumbPoses, checkTweaks, isLetterName, isObject, type Json, type Obj } from './validate.js';
 
 // The signs are kept as documents: one row per sign holding its definition and its bone tweaks as JSON. The API hands them out in
 // the shape of the client's data files (fingerspelling.json, words.json, limits.json), so the client reads either.
@@ -27,7 +27,11 @@ export interface SignData {
   orients: Obj;
   /** The thumb poses per rig ({ rig: { name: pose } }; none saved yet: empty) */
   thumbPoses: Obj;
-  /** Save counter of every sign and of "*global", "*limits", "*orients" and "*thumbPoses": what an edit is based on (see applyChanges). */
+  /** The keyframes per sign ({ sign: { n, points } }, see checkFrames; none saved yet: empty) */
+  frames: Obj;
+  /** What the base poses do with the body's bones ({ orient: { bone: entry } }; none saved yet: empty) */
+  poses: Obj;
+  /** Save counter of every sign and of "*global", "*limits", "*orients", "*thumbPoses", "*frames" and "*poses": what an edit is based on (see applyChanges). */
   versions: Record<string, number>;
 }
 
@@ -61,6 +65,8 @@ export function readData(db: Db, { notes }: { notes: boolean }): SignData {
     limits: setting('limits'),
     orients: setting('orients'),
     thumbPoses: setting('thumbPoses'),
+    frames: setting('frames'),
+    poses: setting('poses'),
     versions,
   };
   return notes ? data : { ...(stripNotes(data as unknown as Json) as unknown as SignData), versions };
@@ -78,6 +84,10 @@ export interface Changes {
   orients?: { base: number; data: unknown };
   /** The thumb poses of the rigs sent: { rig: { name: pose } } (a rig not sent keeps its saved poses). */
   thumbPoses?: { base: number; data: unknown };
+  /** Every keyframe as it is now (replaces the saved ones). */
+  frames?: { base: number; data: unknown };
+  /** Every base pose's bone tweaks as they are now (replaces the saved ones). */
+  poses?: { base: number; data: unknown };
 }
 
 const readSetting = (db: Db, key: string) => db.prepare('SELECT value, version FROM settings WHERE key = ?').get(key) as { value: string; version: number } | undefined;
@@ -115,6 +125,18 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
       putSetting.run('aliases', JSON.stringify(map), version, at, userId);
       log.run('*aliases', version, JSON.stringify(map), userId, at);
       saved['*aliases'] = version;
+    };
+    // the keyframes follow their sign: a deleted sign loses them, a renamed one takes them along (`to` null: deleted)
+    const moveFrames = (from: string, to: string | null) => {
+      const cur = readSetting(db, 'frames');
+      const map: Obj = cur ? JSON.parse(cur.value) : {};
+      if (!(from in map)) return;
+      const { [from]: moved, ...rest } = map;
+      const next = to ? { ...rest, [to]: moved as Json } : rest;
+      const version = (cur?.version ?? 0) + 1;
+      putSetting.run('frames', JSON.stringify(next), version, at, userId);
+      log.run('*frames', version, JSON.stringify(next), userId, at);
+      saved['*frames'] = version;
     };
 
     for (const [key, ch] of Object.entries(changes.signs ?? {})) {
@@ -174,7 +196,8 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
           db.prepare('DELETE FROM signs WHERE key = ?').run(key);
           log.run(key, version, JSON.stringify({ deleted: true, def: oldDef, tweaks: oldTweaks }), userId, at);
           saved[key] = 0;
-          const kept = Object.fromEntries(Object.entries(map).filter(([, sign]) => sign !== key));
+          moveFrames(key, null);
+          const kept =Object.fromEntries(Object.entries(map).filter(([, sign]) => sign !== key));
           if (Object.keys(kept).length !== Object.keys(map).length) writeAliases(kept);
         } else {
           const to = checkSignName(ch.rename);
@@ -186,6 +209,7 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
           log.run(to, version, JSON.stringify({ def: oldDef, tweaks: oldTweaks, renamedFrom: key }), userId, at);
           saved[to] = version;
           saved[key] = 0;
+          moveFrames(key, to);
           if (Object.values(map).includes(key)) writeAliases(Object.fromEntries(Object.entries(map).map(([a, sign]) => [a, sign === key ? to : sign])));
         }
         continue;
@@ -246,6 +270,17 @@ export function applyChanges(db: Db, userId: number, body: unknown): Record<stri
       checkThumbPoses(changes.thumbPoses.data);
       const old = readSetting(db, 'thumbPoses');
       setting('thumbPoses', changes.thumbPoses.base, { ...(old ? JSON.parse(old.value) : {}), ...changes.thumbPoses.data });
+    }
+
+    if (changes.frames !== undefined) {
+      if (!isObject(changes.frames)) throw new HttpError(400, 'Vigased "frames".');
+      checkFrames(changes.frames.data);
+      setting('frames', changes.frames.base, changes.frames.data);
+    }
+    if (changes.poses !== undefined) {
+      if (!isObject(changes.poses)) throw new HttpError(400, 'Vigased "poses".');
+      checkPoses(changes.poses.data);
+      setting('poses', changes.poses.base, changes.poses.data);
     }
 
     if (conflicts.length) throw new HttpError(409, 'Keegi teine on neid vahepeal salvestanud.', { conflicts });

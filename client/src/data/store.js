@@ -29,7 +29,10 @@ export const limits = remote?.limits ?? limitsFile;
 /** The hand orients and the thumb poses the editors saved ({ name: entry }, { rig: { name: pose } }): what shared.json holds is replaced by them (hands.js). */
 export const orients = remote?.orients ?? {};
 export const thumbPoses = remote?.thumbPoses ?? {};
-/** Save counters of the signs ("*global", "*limits", "*orients", "*thumbPoses" for the rest); the editor keeps it up to date. Empty when the data is the bundled copy. */
+/** The keyframes ({ sign: { n: points in its path, points: { index: { bone: entry } } } }) and what the base poses do with the body's bones ({ orient: { bone: entry } }). */
+export const frames = remote?.frames ?? {};
+export const poses = remote?.poses ?? {};
+/** Save counters of the signs ("*global", "*limits", "*orients", "*thumbPoses", "*frames", "*poses" for the rest); the editor keeps it up to date. Empty when the data is the bundled copy. */
 export const versions = remote?.versions ?? {};
 /** Whether the data came from the server (only then can edits be saved). */
 export const fromServer = !!remote;

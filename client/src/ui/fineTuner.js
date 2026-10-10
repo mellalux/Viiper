@@ -32,13 +32,13 @@ import { mirrorRange, axisMax } from '../signing/limits.js';
 // The base poses (the named orients: where a hand is held and which way it points, shared by many signs) have a mode of their own
 // (basePose.js, opened from the hand's block): handles in the scene move the wrist, the elbow and the turn of the hand. The thumb poses
 // are edited in the fingers' block. Both are a working copy in this browser (orients.js, workingTable.js) until "Salvesta" saves them
-// to the server (the `orients` and `thumbPoses` documents): then everybody who opens the page sees them. (What a base pose does with the
-// body's bones, and the keyframes, are kept in this browser only.)
+// to the server (the `orients` and `thumbPoses` documents): then everybody who opens the page sees them. What a base pose does with the
+// body's bones and the keyframes go the same way (the `poses` and `frames` documents).
 // A selected bone is turned and moved in the scene with a TransformControls gizmo (on a proxy object that follows the bone; what it
 // is dragged to is turned back into the bone's tweak, see tweaks.tweakFor); everything else is edited in number fields.
 const STORAGE_KEY = 'viiper.tweaks';
 const LIMITS_KEY = 'viiper.boneLimits';
-const FRAMES_KEY = 'viiper.frames'; // the keyframes (tweaks.js): { frames, n: path length per sign }, this browser only
+const FRAMES_KEY = 'viiper.frames'; // working copy of the keyframes and base-pose bones (tweaks.js): { frames, poses, n: path length per sign, vf, vp: the server's versions it was made from }
 const STANDBY_KEY = 'viiper.standby';
 const UI_KEY = 'viiper.fineTuner'; // { open, height, tlCollapsed, blocksCollapsed, gizmoMode, gizmoSpace }
 const SAVE_URL = '/api/data';
@@ -300,17 +300,26 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     }
     tweaks.load(next);
   }
-  // The keyframes are only kept here (never on the server): a sign whose path has other points now than when they were made loses them.
-  // The arm bones turned for a base pose ("poses", see tweaks.js) are kept in the same place.
+  // The keyframes and the arm bones turned for a base pose ("poses", see tweaks.js) are saved to the server like the tweaks (the `frames` and
+  // `poses` documents, all of each at once), so the working copy is dropped when someone else has saved them since (its version differs).
+  // A sign whose path has other points now than when its keyframes were made loses them.
   const savedFrames = readLS(FRAMES_KEY);
   if (savedFrames?.frames || savedFrames?.poses) {
-    const frames = {};
-    for (const [k, f] of Object.entries(savedFrames.frames ?? {})) {
-      if (SIGNS[k]?.motion?.path.length === savedFrames.n?.[k]) frames[k] = f;
-      else console.info(`Dropped the keyframes of ${k} (its path has other points now).`);
+    const next = tweaks.export();
+    if (savedFrames.frames) {
+      if ((savedFrames.vf ?? 0) === (versions['*frames'] ?? 0)) {
+        next.frames = {};
+        for (const [k, f] of Object.entries(savedFrames.frames)) {
+          if (SIGNS[k]?.motion?.path.length === savedFrames.n?.[k]) next.frames[k] = f;
+          else console.info(`Dropped the keyframes of ${k} (its path has other points now).`);
+        }
+      } else console.info('Dropped the working copy of the keyframes (they were saved by someone else since).');
     }
-    const poses = Object.fromEntries(Object.entries(savedFrames.poses ?? {}).filter(([k]) => orients.names().includes(k)));
-    tweaks.load({ ...tweaks.export(), frames, poses });
+    if (savedFrames.poses) {
+      if ((savedFrames.vp ?? 0) === (versions['*poses'] ?? 0)) next.poses = Object.fromEntries(Object.entries(savedFrames.poses).filter(([k]) => orients.names().includes(k)));
+      else console.info('Dropped the working copy of the base poses\' bones (they were saved by someone else since).');
+    }
+    tweaks.load(next);
   }
 
   // The working copy only lives in localStorage while it differs from the server's data.
@@ -325,9 +334,22 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   const saveFrames = () => {
     try {
       const { frames, poses } = tweaks.export();
-      if (!Object.keys(frames).length && !Object.keys(poses).length) localStorage.removeItem(FRAMES_KEY);
-      else localStorage.setItem(FRAMES_KEY, JSON.stringify({ frames, poses, n: Object.fromEntries(Object.keys(frames).map((k) => [k, SIGNS[k]?.motion?.path.length ?? 0])) }));
+      if (same(frames, fileData.frames) && same(poses, fileData.poses)) localStorage.removeItem(FRAMES_KEY);
+      else localStorage.setItem(FRAMES_KEY, JSON.stringify({ frames, poses, n: Object.fromEntries(Object.keys(frames).map((k) => [k, SIGNS[k]?.motion?.path.length ?? 0])), vf: versions['*frames'] ?? 0, vp: versions['*poses'] ?? 0 }));
     } catch {}
+  };
+  /** The keyframes as the server keeps them: with the number of points of each sign's path. */
+  const framesDoc = (frames) =>
+    Object.fromEntries(Object.entries(frames).map(([k, points]) => [k, { n: SIGNS[k]?.motion?.path.length ?? 0, points }]).filter(([, f]) => f.n >= 2));
+  /** Signs whose keyframes differ from the server's. */
+  const changedFrameKeys = () => {
+    const now = tweaks.export().frames;
+    return [...new Set([...Object.keys(now), ...Object.keys(fileData.frames ?? {})])].filter((k) => !same(now[k], fileData.frames?.[k]));
+  };
+  /** Base poses whose bone tweaks differ from the server's. */
+  const changedPoseNames = () => {
+    const now = tweaks.export().poses;
+    return [...new Set([...Object.keys(now), ...Object.keys(fileData.poses ?? {})])].filter((k) => !same(now[k], fileData.poses?.[k]));
   };
   /** What differs from the loaded data: { sign: its tweaks (null: none left), '*': the body's tweaks }. */
   const tweakDrafts = () => {
@@ -548,14 +570,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     if (limitsChanged()) parts.push('luude piirid');
     if (orients.changedNames().length) parts.push(`põhiasendid: ${orients.changedNames().join(', ')}`);
     if (thumbs.changedNames().length) parts.push(`pöidla asendid: ${thumbs.changedNames().join(', ')}`);
-    // (the keyframes and the bones of a base pose are not saved to the server: they only stay in this browser, so they don't count for the save button)
-    const frames = tweaks.frameSigns();
-    const poseBones = tweaks.poseNames();
-    const local = [
-      poseBones.length && `põhiasendite keha ja luud ainult selles brauseris: ${poseBones.join(', ')}`,
-      frames.length && `keyframe'id ainult selles brauseris: ${frames.join(', ')}`,
-    ].filter(Boolean).join(' · ');
-    statusEl.textContent = parts.length ? `Salvestamata – ${[...parts, ...(local ? [local] : [])].join(' · ')}` : local || 'Salvestamata muudatusi pole.';
+    const frames = changedFrameKeys();
+    const poseBones = changedPoseNames();
+    if (poseBones.length) parts.push(`põhiasendite keha ja luud: ${poseBones.join(', ')}`);
+    if (frames.length) parts.push(`keyframe'id: ${frames.join(', ')}`);
+    statusEl.textContent = parts.length ? `Salvestamata – ${parts.join(' · ')}` : 'Salvestamata muudatusi pole.';
     statusEl.classList.toggle('fd__status--dirty', parts.length > 0);
     statusEl.title = statusEl.textContent;
     saveBtn.disabled = !parts.length;
@@ -1004,14 +1023,17 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       if (isLetterName(to) !== isLetterName(from)) return say('Sõrmendi (üks täht) ja viipe (pikem nimi) vahel nime abil ei vaheta: tee uus märk koopiana ja kustuta see.', true);
       if (dirtySigns.has(from) || changedTweakKeys().includes(from)) return say(`Märgil ${from} on salvestamata muudatusi: salvesta (või lähtesta) need enne ümbernimetamist.`, true);
       if (!confirm(`Nimetan märgi ${from} ümber ${to}? Seda näevad kõik; selle aliased ja ajalugu lähevad kaasa.`)) return;
-      await putChanges({ signs: { [from]: { base: versions[from], rename: to } } });
-      // the keyframes live only in this browser: they move to the new name
+      const res = await putChanges({ signs: { [from]: { base: versions[from], rename: to } } });
+      // the server moved the saved keyframes to the new name; the unsaved ones in this browser move too (and are based on the server's new version)
       saveFrames();
       const frames = readLS(FRAMES_KEY);
-      if (frames?.frames?.[from]) {
-        frames.frames[to] = frames.frames[from];
-        delete frames.frames[from];
-        if (frames.n) [frames.n[to], frames.n[from]] = [frames.n[from], undefined];
+      if (frames) {
+        if (frames.frames?.[from]) {
+          frames.frames[to] = frames.frames[from];
+          delete frames.frames[from];
+          if (frames.n) [frames.n[to], frames.n[from]] = [frames.n[from], undefined];
+        }
+        if (res.versions['*frames'] !== undefined) frames.vf = res.versions['*frames'];
         writeLS(FRAMES_KEY, frames);
       }
       reloadWith(to, `Märk ${from} on nüüd ${to}`);
@@ -1023,8 +1045,11 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       const next = [...letters.slice(at + 1), ...letters.slice(0, at).reverse()].find((l) => l !== STANDBY);
       const unsaved = dirtySigns.has(gone) || changedTweakKeys().includes(gone);
       if (!confirm(`Kustutan märgi ${gone} serverist? Seda näevad kõik: märk kaob koos oma aliaste, luumuudatuste ja liikumisega (varasemad versioonid jäävad ajalukku).${unsaved ? ' Selle salvestamata muudatused lähevad kaduma.' : ''}`)) return;
-      await putChanges({ signs: { [gone]: { base: versions[gone], delete: true } } });
+      const res = await putChanges({ signs: { [gone]: { base: versions[gone], delete: true } } });
       delete versions[gone];
+      // the server dropped the sign's saved keyframes too: that is what the page's copy of them is now
+      if (res.versions['*frames'] !== undefined) versions['*frames'] = res.versions['*frames'];
+      if (fileData.frames) delete fileData.frames[gone];
       // its working copy goes too (it must not come back with a sign of the same name made later)
       defs.resetSign(gone);
       defs.persist();
@@ -2334,7 +2359,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
   });
   $('load-file').addEventListener('click', () => {
     const dirty = dirtySigns.size || canon(tweaks.export()) !== fileState || limitsChanged() || orients.changedNames().length || thumbs.changedNames().length;
-    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded nii, nagu leht need serverist laadis? Salvestamata muudatused (ka keyframe\'id ja põhiasendite luumuudatused, mis on ainult selles brauseris) lähevad kaduma.')) return;
+    if (dirty && !confirm('Kustutan brauseri töökoopia ja laen seaded nii, nagu leht need serverist laadis? Salvestamata muudatused (ka keyframe\'id ja põhiasendite luumuudatused) lähevad kaduma.')) return;
     try {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.removeItem(LIMITS_KEY);
@@ -2375,6 +2400,8 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
     const limitsDirty = limitsChanged();
     const orientsDirty = orients.changedNames().length > 0; // the base poses and the thumb poses go to the server too (everybody sees them)
     const thumbsDirty = thumbs.changedNames().length > 0;
+    const framesDirty = changedFrameKeys().length > 0;
+    const posesDirty = changedPoseNames().length > 0;
     try {
       if (!Object.keys(versions).length) throw new Error('lehe andmed pole serverist (server ei vastanud lehe laadimisel)');
       // one request, saved all or nothing: every sign with the version it was edited from
@@ -2390,7 +2417,9 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       if (limitsDirty) body.limits = { ...limitsState, base: versions['*limits'] };
       if (orientsDirty) body.orients = { base: versions['*orients'] ?? 0, data: orients.all() };
       if (thumbsDirty) body.thumbPoses = { base: versions['*thumbPoses'] ?? 0, data: { [handOf('R')?.rigId ?? 'cc']: thumbs.all() } };
-      if (!Object.keys(signs).length && !body.global && !body.limits && !body.orients && !body.thumbPoses) {
+      if (framesDirty) body.frames = { base: versions['*frames'] ?? 0, data: framesDoc(state.frames) };
+      if (posesDirty) body.poses = { base: versions['*poses'] ?? 0, data: state.poses };
+      if (!Object.keys(signs).length && !body.global && !body.limits && !body.orients && !body.thumbPoses && !body.frames && !body.poses) {
         saveBtn.textContent = 'Pole midagi salvestada';
       } else {
         const res = await putChanges(body);
@@ -2419,7 +2448,7 @@ export function createFineTuner({ scene, camera, controls, dom, tweaks, boneLimi
       console.warn('Could not save', err);
       const conflicts = err.body?.conflicts;
       saveBtn.textContent = conflicts?.length
-        ? `Keegi teine salvestas vahepeal: ${conflicts.map((k) => (k === '*global' ? 'keha' : k === '*limits' ? 'piirid' : k === '*orients' ? 'põhiasendid' : k === '*thumbPoses' ? 'pöidla asendid' : k)).join(', ')} – lae leht uuesti: nende märkide töökoopia asendub teise salvestatuga, ülejäänud muudatused säilivad`
+        ? `Keegi teine salvestas vahepeal: ${conflicts.map((k) => (k === '*global' ? 'keha' : k === '*limits' ? 'piirid' : k === '*orients' ? 'põhiasendid' : k === '*thumbPoses' ? 'pöidla asendid' : k === '*frames' ? 'keyframe\'id' : k === '*poses' ? 'põhiasendite luud' : k)).join(', ')} – lae leht uuesti: nende märkide töökoopia asendub teise salvestatuga, ülejäänud muudatused säilivad`
         : `Ei õnnestunud: ${err.message}`;
       setTimeout(() => (saveBtn.textContent = label), conflicts?.length ? 9000 : 2500);
       updateStatus();

@@ -85,6 +85,43 @@ export function checkThumbPoses(t: unknown): asserts t is Obj {
   }
 }
 
+const FRAMES_MAX_BYTES = 2_000_000;
+
+/**
+ * The keyframes of the signs whose hand moves: { sign: { n: points in its path, points: { index: { bone: entry, "#hand"?: { curl, spread, knuckle, thumb, dir, orient } } } } }.
+ * A bone's entry is like a tweak's, the numbers of a keyframe may be zero (they then override the sign's own tweak).
+ */
+export function checkFrames(t: unknown): asserts t is Obj {
+  if (!isObject(t)) return bad('Keyframe\'id peavad olema objekt.');
+  if (JSON.stringify(t).length > FRAMES_MAX_BYTES) return bad('Keyframe\'id on liiga mahukad.');
+  for (const [sign, f] of Object.entries(t)) {
+    checkSignName(sign);
+    if (!isObject(f) || !Number.isInteger(f.n) || (f.n as number) < 2 || (f.n as number) > 1000 || !isObject(f.points)) return bad(`Vigased keyframe'id märgile "${sign}".`);
+    for (const k of Object.keys(f)) if (k !== 'n' && k !== 'points') return bad(`Vigane väli "${sign}.${k}".`);
+    for (const [i, point] of Object.entries(f.points)) {
+      if (!/^\d+$/.test(i) || +i >= (f.n as number) || !isObject(point)) return bad(`Vigane keyframe "${sign}@${i}".`);
+      for (const [bone, e] of Object.entries(point)) {
+        if (!isObject(e)) return bad(`Vigane kirje "${sign}@${i}.${bone}".`);
+        if (bone === '#hand') {
+          for (const [k, v] of Object.entries(e)) {
+            const ok = k === 'curl' || k === 'spread' || k === 'knuckle' ? nums(v, 4) : k === 'thumb' || k === 'dir' ? typeof v === 'string' : k === 'orient' && isObject(v);
+            if (!ok) return bad(`Vigane väli "${sign}@${i}.#hand.${k}".`);
+          }
+        } else checkTweaks({ [bone]: e });
+      }
+    }
+  }
+}
+
+/** The bone tweaks of the base poses (what a base pose does with the body's bones): { orient: { bone: { rot, pos, w } } }. */
+export function checkPoses(t: unknown): asserts t is Obj {
+  if (!isObject(t)) return bad('Põhiasendite luud peavad olema objekt.');
+  for (const [orient, tw] of Object.entries(t)) {
+    if (!TABLE_KEY.test(orient)) return bad(`Vigane põhiasend "${orient}".`);
+    checkTweaks(tw);
+  }
+}
+
 /** The new limits.json content from what the editor sends; the notes of the old one stay. */
 export function buildLimits(state: unknown, old: Obj): Obj {
   if (!isObject(state) || !isObject(state.bones)) return bad('Oodati { bones }.');

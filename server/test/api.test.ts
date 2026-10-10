@@ -350,6 +350,37 @@ describe('saving signs', () => {
     assert.equal((await editor.put('/api/data', { orients: { base: v['*orients'], data: {} } })).status, 409);
     assert.equal((await client().put('/api/data', { orients: { base: 0, data: {} } })).status, 401);
   });
+
+  it('saves the keyframes and the base poses\' bones, and they follow a renamed sign and go with a deleted one', async () => {
+    const editor = await login('editor', 'another long password');
+    const put = (body: unknown) => editor.put('/api/data', body);
+    const data = async () => (await editor.get('/api/data')).json;
+    const def = { curl: [0, 0, 0, 0], thumb: 'rest', dir: 'up', motion: { path: [[0, 0], [0, 0.2], [0.2, 0.2]], duration: 1 } };
+    assert.equal((await put({ signs: { VIIP: { create: true, def } } })).status, 200);
+    let v = (await data()).versions;
+
+    const point = { Spine: { rot: [0, 0, 0], w: 1 }, '#hand': { curl: [0, 0, 0, 0], thumb: 'rest' } };
+    const frame = (n: number, points: unknown) => ({ frames: { base: v['*frames'] ?? 0, data: { VIIP: { n, points } } } });
+    assert.equal((await put(frame(3, { 3: point }))).status, 400); // a point past the end of the path
+    assert.equal((await put(frame(3, { 1: { Spine: { rot: [0, 0] } } }))).status, 400); // a bad entry
+    assert.equal((await put(frame(1, { 0: point }))).status, 400); // a path of one point
+    assert.equal((await put({ poses: { base: v['*poses'] ?? 0, data: { up: { Spine: { rot: 'x' } } } } })).status, 400);
+    const res = await put({ ...frame(3, { 1: point }), poses: { base: v['*poses'] ?? 0, data: { up: { Spine: { rot: [0, 0.1, 0] } } } } });
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+
+    const seen = (await client().get('/api/data')).json; // everybody sees them
+    assert.deepEqual(seen.frames, { VIIP: { n: 3, points: { 1: point } } });
+    assert.deepEqual(seen.poses, { up: { Spine: { rot: [0, 0.1, 0] } } });
+    assert.equal((await put(frame(3, {}))).status, 409); // stale
+
+    v = (await data()).versions;
+    const renamed = await put({ signs: { VIIP: { base: v.VIIP, rename: 'VIIPE' } } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
+    assert.deepEqual(Object.keys((await data()).frames), ['VIIPE']);
+    v = (await data()).versions;
+    assert.equal((await put({ signs: { VIIPE: { base: v.VIIPE, delete: true } } })).status, 200);
+    assert.deepEqual((await data()).frames, {});
+  });
 });
 
 describe('audit log', () => {
