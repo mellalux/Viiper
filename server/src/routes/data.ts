@@ -9,7 +9,7 @@ export function dataRoutes(db: Db, audit: Audit): Router {
 
   // Public: what the site shows (the signs, the aliases, the limits). Notes are for people reading the data: only editors get them.
   router.get('/data', (req, res) => {
-    res.set('Cache-Control', 'no-cache'); // always revalidate (the ETag makes that cheap); an edit shows at once
+    res.set('Cache-Control', 'no-store'); // never kept by the browser or a proxy in front: an edit shows at once everywhere
     res.vary('Cookie');
     res.json(readData(db, { notes: !!req.user }));
   });

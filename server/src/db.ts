@@ -82,7 +82,23 @@ export function openDb(file: string): Db {
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   migrate(db);
+  cacheStatements(db);
   return db;
+}
+
+/**
+ * Every statement is prepared once and reused. The code prepares its (fixed) SQL where it runs, and a statement thrown away after each
+ * request is destroyed by the garbage collector, which has crashed node on some hosts inside better-sqlite3's Statement destructor
+ * ("Assertion failed: (env) != nullptr"). Cached statements are only freed when the database is closed.
+ */
+function cacheStatements(db: Db): void {
+  const prepare = db.prepare.bind(db) as (sql: string) => Database.Statement;
+  const cache = new Map<string, Database.Statement>();
+  db.prepare = ((sql: string) => {
+    let statement = cache.get(sql);
+    if (!statement) cache.set(sql, (statement = prepare(sql)));
+    return statement;
+  }) as Db['prepare'];
 }
 
 function migrate(db: Db): void {

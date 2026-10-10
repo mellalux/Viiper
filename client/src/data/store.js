@@ -10,7 +10,7 @@ const TIMEOUT_MS = 5000;
 
 async function fetchData() {
   try {
-    const res = await fetch('/api/data', { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetch('/api/data', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data?.fingerspelling?.signs || !data?.words?.signs || !data?.limits) throw new Error('unexpected answer');
